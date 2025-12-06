@@ -163,7 +163,7 @@ async function scrapeCompetition(
           let homeScore: number | null = null;
           let awayScore: number | null = null;
           let datetime = '';
-          let venue = '';
+          const venue = '';
           
           // Try to find team names from links
           const teamLinks = row.querySelectorAll('a[href*="/team/"], a[href*="/tym/"]');

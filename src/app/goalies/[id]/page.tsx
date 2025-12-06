@@ -12,6 +12,7 @@ import {
 } from "@/lib/storage";
 import { ShotHeatmap } from "@/components/ShotHeatmap";
 import { GoalHeatmap } from "@/components/GoalView";
+import { Select } from "@/components/ui/Select";
 
 export default function GoalieDetailPage() {
   const router = useRouter();
@@ -125,35 +126,37 @@ export default function GoalieDetailPage() {
       </div>
 
       {/* Filters */}
-      <div className="space-y-2 border-b border-borderSoft bg-bgSurfaceSoft px-4 py-2">
+      <div className="space-y-2 border-b border-borderSoft bg-bgSurfaceSoft px-4 py-3">
         <div className="flex gap-2">
-          <select
+          <Select
             value={selectedSeason}
-            onChange={(e) => {
-              setSelectedSeason(e.target.value);
+            onChange={(val) => {
+              setSelectedSeason(val);
               setSelectedMatch("all");
             }}
-            className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100"
-          >
-            <option value="all">Všechny sezóny</option>
-            {seasons.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: "all", label: "Všechny sezóny" },
+              ...seasons.map((s) => ({
+                value: s.id,
+                label: s.label || s.id,
+              })),
+            ]}
+            size="sm"
+            className="flex-1"
+          />
+          <Select
             value={selectedMatch}
-            onChange={(e) => setSelectedMatch(e.target.value)}
-            className="flex-1 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100"
-          >
-            <option value="all">Všechny zápasy</option>
-            {filteredMatches.map((m) => (
-              <option key={m.id} value={m.id}>
-                {new Date(m.datetime).toLocaleDateString("cs-CZ")} - {m.away}
-              </option>
-            ))}
-          </select>
+            onChange={(val) => setSelectedMatch(val)}
+            options={[
+              { value: "all", label: "Všechny zápasy" },
+              ...filteredMatches.map((m) => ({
+                value: m.id,
+                label: `${new Date(m.datetime).toLocaleDateString("cs-CZ")} - ${m.away}`,
+              })),
+            ]}
+            size="sm"
+            className="flex-1"
+          />
         </div>
       </div>
 
@@ -243,6 +246,62 @@ export default function GoalieDetailPage() {
               </div>
             </div>
 
+            {/* Situation breakdown */}
+            {(stats.shotsEven || stats.shotsPP || stats.shotsSH) && (
+              <div className="mb-4">
+                <h2 className="mb-3 text-xs font-semibold text-slate-400">
+                  STATISTIKY PODLE SITUACE
+                </h2>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-xl bg-bgSurfaceSoft p-3 text-center">
+                    <div className="text-xs text-slate-500">5v5</div>
+                    <div className="text-lg font-bold text-slate-50">
+                      {stats.savesEven || 0}/{stats.shotsEven || 0}
+                    </div>
+                    <div className="text-xs text-accentPrimary">
+                      {stats.shotsEven && stats.shotsEven > 0
+                        ? (
+                            ((stats.savesEven || 0) / stats.shotsEven) *
+                            100
+                          ).toFixed(1)
+                        : "0"}
+                      %
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-bgSurfaceSoft p-3 text-center">
+                    <div className="text-xs text-accentDanger">PP</div>
+                    <div className="text-lg font-bold text-slate-50">
+                      {stats.savesPP || 0}/{stats.shotsPP || 0}
+                    </div>
+                    <div className="text-xs text-accentPrimary">
+                      {stats.shotsPP && stats.shotsPP > 0
+                        ? (
+                            ((stats.savesPP || 0) / stats.shotsPP) *
+                            100
+                          ).toFixed(1)
+                        : "0"}
+                      %
+                    </div>
+                  </div>
+                  <div className="rounded-xl bg-bgSurfaceSoft p-3 text-center">
+                    <div className="text-xs text-accentSuccess">SH</div>
+                    <div className="text-lg font-bold text-slate-50">
+                      {stats.savesSH || 0}/{stats.shotsSH || 0}
+                    </div>
+                    <div className="text-xs text-accentPrimary">
+                      {stats.shotsSH && stats.shotsSH > 0
+                        ? (
+                            ((stats.savesSH || 0) / stats.shotsSH) *
+                            100
+                          ).toFixed(1)
+                        : "0"}
+                      %
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Zone stats */}
             {Object.keys(zoneStats).length > 0 && (
               <div className="mb-4">
@@ -300,7 +359,7 @@ export default function GoalieDetailPage() {
                       const matchEvents = events.filter(
                         (e) => e.matchId === match.id
                       );
-                      let saves, goals, shots, pct;
+                      let saves, goals, shots;
 
                       if (match.manualStats && match.manualStats.shots > 0) {
                         saves = match.manualStats.saves;
@@ -315,7 +374,7 @@ export default function GoalieDetailPage() {
                         ).length;
                         shots = saves + goals;
                       }
-                      pct = shots > 0 ? ((saves / shots) * 100).toFixed(1) : "0";
+                      const matchPct = shots > 0 ? ((saves / shots) * 100).toFixed(1) : "0";
 
                       return (
                         <div
@@ -344,7 +403,7 @@ export default function GoalieDetailPage() {
                             </div>
                             <div className="text-right text-xs">
                               <div className="font-semibold text-accentPrimary">
-                                {pct}%
+                                {matchPct}%
                               </div>
                               <div className="text-slate-400">
                                 {saves}/{shots} zák.

@@ -2,22 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { Match, Goalie } from "@/lib/types";
+import type { Match, Goalie, CompetitionStandings } from "@/lib/types";
 import {
   getMatches,
   getGoalies,
   getGoalieById,
   saveMatch,
   deleteMatch,
+  getStandings,
+  saveStandings,
 } from "@/lib/storage";
 import { ManualStatsModal } from "@/components/ManualStatsModal";
+import { ImportWizard } from "@/components/ImportWizard";
+import { StandingsModal } from "@/components/StandingsTable";
 
-// Preset competitions for HC Slovan Ústí
+// Preset competitions for HC Slovan Ústí (ustecky.ceskyhokej.cz)
 const COMPETITION_PRESETS = [
-  { id: "23", name: "Starší žáci A", clubId: "115" },
-  { id: "24", name: "Starší žáci B", clubId: "115" },
-  { id: "25", name: "Mladší žáci A", clubId: "115" },
-  { id: "26", name: "Mladší žáci B", clubId: "115" },
+  { id: "1860", name: "Starší žáci A", season: "2025-2026", externalId: "1860" },
+  { id: "1872", name: "Starší žáci B", season: "2025-2026", externalId: "1872" },
+  { id: "1884", name: "Mladší žáci A", season: "2025-2026", externalId: "1884" },
+  { id: "1894", name: "Mladší žáci B", season: "2025-2026", externalId: "1894" },
 ];
 
 export default function HomePage() {
@@ -28,9 +32,8 @@ export default function HomePage() {
   const [importing, setImporting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
   const [importConfig, setImportConfig] = useState({
-    competitionId: "23",
-    clubId: "115",
-    teamName: "Slovan Ústí",
+    competitionId: "1860",
+    season: "2025-2026",
   });
   const [importResult, setImportResult] = useState<{
     total: number;
@@ -41,6 +44,12 @@ export default function HomePage() {
   const [deletingMatch, setDeletingMatch] = useState<Match | null>(null);
   const [importMode, setImportMode] = useState<"api" | "json">("api");
   const [jsonInput, setJsonInput] = useState("");
+  const [showImportWizard, setShowImportWizard] = useState(false);
+  
+  // Standings state
+  const [showStandings, setShowStandings] = useState(false);
+  const [currentStandings, setCurrentStandings] = useState<CompetitionStandings | null>(null);
+  const [loadingStandings, setLoadingStandings] = useState(false);
 
   useEffect(() => {
     setMatches(getMatches());
@@ -88,12 +97,82 @@ export default function HomePage() {
     cup: "Pohár",
   };
 
+  // Find standings for current category filter
+  const findStandingsForCategory = (category: string): CompetitionStandings | null => {
+    const allStandings = getStandings();
+    const preset = COMPETITION_PRESETS.find(p => p.name === category);
+    if (preset) {
+      return allStandings.find(s => s.externalCompetitionId === preset.externalId) || null;
+    }
+    // Try to find by competition ID from matches
+    const matchWithCompetition = matches.find(m => m.category === category && m.competitionId);
+    if (matchWithCompetition?.competitionId) {
+      return allStandings.find(s => s.competitionId === matchWithCompetition.competitionId) || null;
+    }
+    return null;
+  };
+
+  // Load standings for current filter
+  const handleLoadStandings = async () => {
+    const category = categoryFilter !== "all" ? categoryFilter : categories[0];
+    if (!category) return;
+    
+    // Check local storage first
+    const localStandings = findStandingsForCategory(category);
+    if (localStandings) {
+      setCurrentStandings(localStandings);
+      setShowStandings(true);
+      return;
+    }
+    
+    // Fetch from API
+    setLoadingStandings(true);
+    const preset = COMPETITION_PRESETS.find(p => p.name === category);
+    if (!preset) {
+      setLoadingStandings(false);
+      return;
+    }
+    
+    try {
+      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.season}`);
+      const data = await res.json();
+      if (data.success && data.standings) {
+        saveStandings(data.standings);
+        setCurrentStandings(data.standings);
+        setShowStandings(true);
+      }
+    } catch (error) {
+      console.error("Failed to load standings:", error);
+    } finally {
+      setLoadingStandings(false);
+    }
+  };
+
+  const handleRefreshStandings = async () => {
+    const category = categoryFilter !== "all" ? categoryFilter : categories[0];
+    const preset = COMPETITION_PRESETS.find(p => p.name === category);
+    if (!preset) return;
+    
+    setLoadingStandings(true);
+    try {
+      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.season}`);
+      const data = await res.json();
+      if (data.success && data.standings) {
+        saveStandings(data.standings);
+        setCurrentStandings(data.standings);
+      }
+    } catch (error) {
+      console.error("Failed to refresh standings:", error);
+    } finally {
+      setLoadingStandings(false);
+    }
+  };
+
   const handlePresetChange = (preset: typeof COMPETITION_PRESETS[0]) => {
     setSelectedPreset(preset);
     setImportConfig({
-      ...importConfig,
       competitionId: preset.id,
-      clubId: preset.clubId,
+      season: preset.season,
     });
   };
 
@@ -105,7 +184,7 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          season: "2025-2026",
+          season: importConfig.season,
           competitionId: importConfig.competitionId || undefined,
         }),
       });
@@ -116,6 +195,11 @@ export default function HomePage() {
         // Save all imported matches
         data.matches.forEach((m: Match) => saveMatch(m));
         setMatches(getMatches());
+
+        // Also save standings if available
+        if (data.standings && data.standings.length > 0) {
+          data.standings.forEach((s: CompetitionStandings) => saveStandings(s));
+        }
 
         setImportResult({
           total: data.matches.length,
@@ -209,6 +293,11 @@ export default function HomePage() {
     setDeletingMatch(null);
   };
 
+  // Check if standings are available for current category
+  const currentCategoryStandings = categoryFilter !== "all" 
+    ? findStandingsForCategory(categoryFilter) 
+    : (categories.length > 0 ? findStandingsForCategory(categories[0]) : null);
+
   return (
     <main className="flex flex-1 flex-col gap-4 px-4 py-4">
       {/* Header */}
@@ -222,24 +311,31 @@ export default function HomePage() {
         </Link>
       </div>
 
-          {/* Quick actions */}
-          <div className="grid grid-cols-2 gap-3">
-            <Link
-              href="/matches/new"
-              className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accentPrimary/50 bg-accentPrimary/10 py-4 text-sm font-medium text-accentPrimary"
-            >
-              <span className="text-lg">+</span>
-              Nový zápas
-            </Link>
-            <button
-              onClick={() => setShowImport(true)}
-              className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accentSuccess/50 bg-accentSuccess/10 py-4 text-sm font-medium text-accentSuccess"
-            >
-              <span className="text-lg">↓</span>
-              Import z webu
-            </button>
-          </div>
-
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link
+          href="/matches/new"
+          className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accentPrimary/50 bg-accentPrimary/10 py-4 text-sm font-medium text-accentPrimary"
+        >
+          <span className="text-lg">+</span>
+          Nový zápas
+        </Link>
+        <button
+          onClick={() => setShowImportWizard(true)}
+          className="flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-accentSuccess/50 bg-accentSuccess/10 py-4 text-sm font-medium text-accentSuccess"
+        >
+          <span className="text-lg">↓</span>
+          Import z webu
+        </button>
+      </div>
+      
+      {/* Quick import button */}
+      <button
+        onClick={() => setShowImport(true)}
+        className="w-full rounded-lg bg-slate-800/50 px-3 py-2 text-xs text-slate-400"
+      >
+        Rychlý import / JSON import
+      </button>
 
       {/* Category filter */}
       {categories.length > 0 && (
@@ -350,26 +446,13 @@ export default function HomePage() {
                     </div>
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">
-                        ID klubu
+                        Sezóna
                       </label>
                       <input
                         type="text"
-                        value={importConfig.clubId}
+                        value={importConfig.season}
                         onChange={(e) =>
-                          setImportConfig({ ...importConfig, clubId: e.target.value })
-                        }
-                        className="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500">
-                        Název týmu
-                      </label>
-                      <input
-                        type="text"
-                        value={importConfig.teamName}
-                        onChange={(e) =>
-                          setImportConfig({ ...importConfig, teamName: e.target.value })
+                          setImportConfig({ ...importConfig, season: e.target.value })
                         }
                         className="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100"
                       />
@@ -494,6 +577,27 @@ export default function HomePage() {
         />
       )}
 
+      {/* Import Wizard */}
+      <ImportWizard
+        open={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onComplete={(count) => {
+          setMatches(getMatches());
+          setShowImportWizard(false);
+          alert(`Importováno ${count} zápasů`);
+        }}
+      />
+
+      {/* Standings Modal */}
+      <StandingsModal
+        open={showStandings}
+        onClose={() => setShowStandings(false)}
+        standings={currentStandings}
+        title={categoryFilter !== "all" ? `Tabulka: ${categoryFilter}` : "Tabulka soutěže"}
+        loading={loadingStandings}
+        onRefresh={handleRefreshStandings}
+      />
+
       {/* Matches list */}
       {matches.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
@@ -584,7 +688,8 @@ export default function HomePage() {
                           </div>
                           <button
                             onClick={() => setDeletingMatch(m)}
-                            className="text-slate-500 hover:text-accentDanger"
+                            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-700 hover:text-accentDanger"
+                            aria-label="Smazat zápas"
                           >
                             🗑️
                           </button>
@@ -623,45 +728,69 @@ export default function HomePage() {
           {/* Past matches */}
           {pastMatches.length > 0 && (
             <section>
-              <h2 className="mb-3 text-sm font-semibold text-slate-400">
-                ODEHRANÉ ZÁPASY ({pastMatches.length})
-              </h2>
+              {/* Section header with standings link */}
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-400">
+                  ODEHRANÉ ZÁPASY ({pastMatches.length})
+                </h2>
+                <button
+                  onClick={handleLoadStandings}
+                  disabled={loadingStandings}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-accentPrimary hover:bg-slate-700 disabled:opacity-50"
+                  aria-label="Zobrazit tabulku soutěže"
+                >
+                  {loadingStandings ? (
+                    <span className="animate-spin">⏳</span>
+                  ) : (
+                    <span>📊</span>
+                  )}
+                  Tabulka
+                </button>
+              </div>
+              
+              {/* Standings hint if not available */}
+              {!currentCategoryStandings && categoryFilter !== "all" && (
+                <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-800/30 px-3 py-2 text-xs text-slate-500">
+                  <span>Tabulka soutěže zatím není k dispozici</span>
+                  <button
+                    onClick={handleLoadStandings}
+                    disabled={loadingStandings}
+                    className="text-accentPrimary hover:underline disabled:opacity-50"
+                  >
+                    Načíst
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-2">
                 {pastMatches.slice(0, 20).map((m) => {
                   const goalie = m.goalieId
                     ? getGoalieById(m.goalieId)
                     : null;
                   const hasStats = m.manualStats && m.manualStats.shots > 0;
+                  const hasScore = m.homeScore !== undefined && m.awayScore !== undefined;
 
                   return (
                     <div
                       key={m.id}
                       className="rounded-xl bg-bgSurfaceSoft/50 p-3"
                     >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium">
-                              {m.home} vs {m.away}
-                            </span>
-                            {m.homeScore !== undefined && (
-                              <span className="rounded bg-slate-700 px-1.5 py-0.5 text-xs font-bold">
-                                {m.homeScore}:{m.awayScore}
-                              </span>
-                            )}
+                      {/* Main row with flex layout for consistent alignment */}
+                      <div className="flex items-center gap-3">
+                        {/* Match info - takes remaining space */}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">
+                            {m.home} vs {m.away}
                           </div>
                           <div className="mt-0.5 text-xs text-slate-500">
-                            {new Date(m.datetime).toLocaleDateString("cs-CZ")} •{" "}
-                            {m.category}
+                            {new Date(m.datetime).toLocaleDateString("cs-CZ")} • {m.category}
                             {m.source === "ceskyhokej" && (
-                              <span className="ml-1 text-accentSuccess">
-                                (import)
-                              </span>
+                              <span className="ml-1 text-accentSuccess">(import)</span>
                             )}
                           </div>
                           {/* Roster summary */}
                           {m.roster?.goalScorers && m.roster.goalScorers.length > 0 && (
-                            <div className="mt-1 text-xs text-slate-400">
+                            <div className="mt-1 truncate text-xs text-slate-400">
                               ⚽ {m.roster.goalScorers
                                 .filter(gs => gs.isOurTeam)
                                 .map(gs => gs.name)
@@ -674,45 +803,54 @@ export default function HomePage() {
                               {hasStats && (
                                 <span className="ml-2 text-accentPrimary">
                                   {m.manualStats!.saves}/{m.manualStats!.shots}{" "}
-                                  (
-                                  {(
-                                    (m.manualStats!.saves /
-                                      m.manualStats!.shots) *
-                                    100
-                                  ).toFixed(1)}
-                                  %)
+                                  ({((m.manualStats!.saves / m.manualStats!.shots) * 100).toFixed(1)}%)
                                 </span>
                               )}
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-col gap-1">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setEditingMatch(m);
-                              }}
-                              className="rounded-lg bg-slate-700 px-2 py-1 text-xs text-slate-300"
-                            >
-                              {goalie ? "✏️" : "➕"}
-                            </button>
-                            <Link
-                              href={`/match/${m.id}`}
-                              className="rounded-lg bg-accentPrimary/20 px-2 py-1 text-xs text-accentPrimary"
-                            >
-                              →
-                            </Link>
-                            <button
-                              onClick={(e) => {
-                                e.preventDefault();
-                                setDeletingMatch(m);
-                              }}
-                              className="rounded-lg bg-slate-700 px-2 py-1 text-xs text-slate-500 hover:text-accentDanger"
-                            >
-                              🗑️
-                            </button>
+
+                        {/* Score badge - fixed width for alignment */}
+                        {hasScore && (
+                          <div className="flex h-8 min-w-[3.5rem] items-center justify-center rounded-lg bg-slate-700 px-2 text-sm font-bold tabular-nums">
+                            {m.homeScore}:{m.awayScore}
                           </div>
+                        )}
+
+                        {/* Action buttons - consistent spacing */}
+                        <div className="flex items-center gap-1">
+                          {/* Plus/Edit button - more visible */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setEditingMatch(m);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-accentPrimary/20 text-sm text-accentPrimary hover:bg-accentPrimary/30"
+                            aria-label={goalie ? "Upravit statistiky" : "Přidat statistiky"}
+                          >
+                            {goalie ? "✏️" : "+"}
+                          </button>
+                          
+                          {/* Detail link */}
+                          <Link
+                            href={`/match/${m.id}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-accentPrimary/20 text-sm text-accentPrimary hover:bg-accentPrimary/30"
+                            aria-label="Detail zápasu"
+                          >
+                            →
+                          </Link>
+                          
+                          {/* Delete button */}
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setDeletingMatch(m);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-700 text-sm text-slate-400 hover:bg-slate-600 hover:text-accentDanger"
+                            aria-label="Smazat zápas"
+                          >
+                            🗑️
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -725,7 +863,7 @@ export default function HomePage() {
       )}
 
       {/* Bottom nav */}
-      <div className="mt-auto pt-4">
+      <div className="mt-auto space-y-2 pt-4">
         <Link
           href="/goalies"
           className="block rounded-2xl bg-bgSurfaceSoft p-4 text-center"
@@ -734,6 +872,20 @@ export default function HomePage() {
             👤 Správa brankářů a sezónní statistiky
           </span>
         </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/stats"
+            className="flex-1 rounded-xl bg-bgSurfaceSoft p-3 text-center text-xs text-slate-400"
+          >
+            📊 Porovnání
+          </Link>
+          <Link
+            href="/settings"
+            className="flex-1 rounded-xl bg-bgSurfaceSoft p-3 text-center text-xs text-slate-400"
+          >
+            ⚙️ Nastavení
+          </Link>
+        </div>
       </div>
     </main>
   );

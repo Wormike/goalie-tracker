@@ -16,3 +16,25 @@
 body {
   @apply bg-bgMain text-slate-50;
 }
+
+/* Landscape mode optimizations */
+@media (orientation: landscape) and (max-height: 500px) {
+  /* Hide scrollbars in landscape for cleaner tracking */
+  .landscape-tracking {
+    overflow: hidden;
+  }
+  
+  /* Larger touch targets */
+  .landscape-tracking button {
+    min-height: 48px;
+  }
+}
+
+/* Safe area insets for notched devices */
+@supports (padding: max(0px)) {
+  .safe-area-padding {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}

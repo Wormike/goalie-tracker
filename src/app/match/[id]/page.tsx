@@ -6,6 +6,9 @@ import { ActionBar } from "@/components/ActionBar";
 import { LiveStatsBar } from "@/components/LiveStatsBar";
 import { RinkView } from "@/components/RinkView";
 import { EventModal } from "@/components/EventModal";
+import { EventListModal } from "@/components/EventListModal";
+import { LandscapeTrackingView } from "@/components/LandscapeTrackingView";
+import { useIsMobile } from "@/hooks/useOrientation";
 import type {
   GoalieEvent,
   Match,
@@ -13,10 +16,12 @@ import type {
   ShotZone,
   SituationType,
   Goalie,
+  MatchStatus,
 } from "@/lib/types";
 import {
   getMatchById,
   getEventsByMatch,
+  getAllEventsByMatch,
   saveEvent,
   getGoalieById,
   getGoalies,
@@ -24,6 +29,7 @@ import {
   saveEvents,
   getEvents,
 } from "@/lib/storage";
+import { generateMatchReport, shareText } from "@/lib/utils";
 
 function getZoneFromCoords(x: number, y: number): ShotZone {
   if (y < 30) return "blue_line";
@@ -36,13 +42,16 @@ function getZoneFromCoords(x: number, y: number): ShotZone {
 export default function MatchPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const isMobile = useIsMobile();
 
   const [match, setMatch] = useState<Match | null>(null);
+  const [showLandscapeMode, setShowLandscapeMode] = useState(false);
   const [goalie, setGoalie] = useState<Goalie | null>(null);
   const [goalies, setGoalies] = useState<Goalie[]>([]);
   const [period, setPeriod] = useState<Period>(1);
   const [gameTime, setGameTime] = useState("20:00");
   const [events, setEvents] = useState<GoalieEvent[]>([]);
+  const [allEvents, setAllEvents] = useState<GoalieEvent[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{
     x: number;
@@ -51,6 +60,7 @@ export default function MatchPage() {
   const [pendingZone, setPendingZone] = useState<ShotZone | null>(null);
   const [showGoalieSelect, setShowGoalieSelect] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showEventList, setShowEventList] = useState(false);
   const [activeTab, setActiveTab] = useState<"tracking" | "roster">("tracking");
 
   useEffect(() => {
@@ -58,12 +68,23 @@ export default function MatchPage() {
     if (m) {
       setMatch(m);
       setEvents(getEventsByMatch(m.id));
+      setAllEvents(getAllEventsByMatch(m.id));
       if (m.goalieId) {
         setGoalie(getGoalieById(m.goalieId) || null);
       }
     }
     setGoalies(getGoalies());
   }, [params.id]);
+
+  // Auto-refresh events when match changes
+  useEffect(() => {
+    if (match) {
+      setEvents(getEventsByMatch(match.id));
+      setAllEvents(getAllEventsByMatch(match.id));
+    }
+  }, [match]);
+
+  const isMatchClosed = match?.status === "closed" || match?.completed;
 
   const stats = useMemo(() => {
     const filtered = events.filter(
@@ -87,6 +108,7 @@ export default function MatchPage() {
   }, [events]);
 
   const handleRinkTap = (coords: { x: number; y: number }) => {
+    if (isMatchClosed) return;
     const zone = getZoneFromCoords(coords.x, coords.y);
     setPendingCoords(coords);
     setPendingZone(zone);
@@ -94,7 +116,7 @@ export default function MatchPage() {
   };
 
   const addEventQuick = (result: "save" | "goal" | "miss") => {
-    if (!match) return;
+    if (!match || isMatchClosed) return;
     const now = new Date().toISOString();
     const zone: ShotZone = "slot";
 
@@ -108,9 +130,13 @@ export default function MatchPage() {
       result,
       shotPosition: { x: 50, y: 50, zone },
       situation: "even" as SituationType,
+      inputSource: "live",
+      status: "confirmed",
+      createdAt: now,
     };
     saveEvent(newEvent);
     setEvents((prev) => [...prev, newEvent]);
+    setAllEvents((prev) => [...prev, newEvent]);
   };
 
   const handleGoalieChange = (goalieId: string) => {
@@ -122,8 +148,8 @@ export default function MatchPage() {
 
     // Update all events with new goalie ID
     const updatedEvents = events.map((e) => ({ ...e, goalieId }));
-    const allEvents = getEvents();
-    const otherEvents = allEvents.filter((e) => e.matchId !== match.id);
+    const allEventsStorage = getEvents();
+    const otherEvents = allEventsStorage.filter((e) => e.matchId !== match.id);
     saveEvents([...otherEvents, ...updatedEvents]);
     setEvents(updatedEvents);
 
@@ -131,14 +157,28 @@ export default function MatchPage() {
   };
 
   const handleDeleteLastEvent = () => {
-    if (events.length === 0) return;
+    if (events.length === 0 || isMatchClosed) return;
     if (!confirm("Smazat poslední událost?")) return;
 
-    const allEvents = getEvents();
+    const allEventsStorage = getEvents();
     const lastEvent = events[events.length - 1];
-    const filtered = allEvents.filter((e) => e.id !== lastEvent.id);
+    const filtered = allEventsStorage.filter((e) => e.id !== lastEvent.id);
     saveEvents(filtered);
     setEvents(events.slice(0, -1));
+    setAllEvents((prev) => prev.filter((e) => e.id !== lastEvent.id));
+  };
+
+  const toggleMatchStatus = () => {
+    if (!match) return;
+    const newStatus: MatchStatus = match.status === "closed" ? "open" : "closed";
+    const updatedMatch: Match = {
+      ...match,
+      status: newStatus,
+      completed: newStatus === "closed",
+      updatedAt: new Date().toISOString(),
+    };
+    saveMatch(updatedMatch);
+    setMatch(updatedMatch);
   };
 
   if (!match) {
@@ -177,6 +217,34 @@ export default function MatchPage() {
           className="text-xs text-accentPrimary"
         >
           {goalie ? "Změnit" : "Přiřadit"}
+        </button>
+      </div>
+
+      {/* Match status bar */}
+      <div
+        className={`flex items-center justify-between px-4 py-2 text-xs ${
+          isMatchClosed
+            ? "bg-slate-700/50 text-slate-400"
+            : "bg-accentSuccess/10 text-accentSuccess"
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              isMatchClosed ? "bg-slate-500" : "bg-accentSuccess animate-pulse"
+            }`}
+          />
+          <span>{isMatchClosed ? "Zápas ukončen" : "Zápas probíhá"}</span>
+        </div>
+        <button
+          onClick={toggleMatchStatus}
+          className={`rounded-lg px-2 py-1 text-xs font-medium ${
+            isMatchClosed
+              ? "bg-accentSuccess/20 text-accentSuccess"
+              : "bg-accentDanger/20 text-accentDanger"
+          }`}
+        >
+          {isMatchClosed ? "Znovu otevřít" : "Ukončit zápas"}
         </button>
       </div>
 
@@ -275,6 +343,49 @@ export default function MatchPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Event List Modal */}
+      <EventListModal
+        open={showEventList}
+        onClose={() => setShowEventList(false)}
+        events={allEvents}
+        onEventsChange={() => {
+          setEvents(getEventsByMatch(match.id));
+          setAllEvents(getAllEventsByMatch(match.id));
+        }}
+        matchClosed={isMatchClosed}
+      />
+
+      {/* Landscape Tracking View */}
+      {showLandscapeMode && !isMatchClosed && (
+        <LandscapeTrackingView
+          period={period}
+          gameTime={gameTime}
+          events={events}
+          totalStats={totalStats}
+          onAddEvent={({ result, situation, shotPosition }) => {
+            const now = new Date().toISOString();
+            const newEvent: GoalieEvent = {
+              id: `${Date.now()}`,
+              matchId: match.id,
+              goalieId: goalie?.id || "",
+              period,
+              gameTime,
+              timestamp: now,
+              result,
+              shotPosition: shotPosition || { x: 50, y: 50, zone: "slot" },
+              situation,
+              inputSource: "live",
+              status: "confirmed",
+              createdAt: now,
+            };
+            saveEvent(newEvent);
+            setEvents((prev) => [...prev, newEvent]);
+            setAllEvents((prev) => [...prev, newEvent]);
+          }}
+          onClose={() => setShowLandscapeMode(false)}
+        />
       )}
 
       {/* ROSTER TAB */}
@@ -432,12 +543,21 @@ export default function MatchPage() {
               >
                 🔥
               </button>
+              <button
+                onClick={() => setShowEventList(true)}
+                className="rounded-lg bg-slate-800 px-2 py-1 text-[10px] text-slate-400"
+              >
+                📋 {events.length}
+              </button>
               <input
                 value={gameTime}
                 onChange={(e) => setGameTime(e.target.value)}
                 className="h-8 w-16 rounded-lg bg-slate-800 text-center font-mono text-sm text-slate-100"
+                disabled={isMatchClosed}
               />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              {!isMatchClosed && (
+                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              )}
             </div>
           </div>
 
@@ -454,11 +574,26 @@ export default function MatchPage() {
             showHeatmap={showHeatmap}
           />
 
+          {/* Disabled overlay when match is closed */}
+          {isMatchClosed && (
+            <div className="px-4 py-2">
+              <div className="rounded-lg bg-slate-800/50 p-3 text-center text-xs text-slate-400">
+                Zápas je ukončen. Pro přidání událostí nejprve znovu otevřete
+                zápas.
+              </div>
+            </div>
+          )}
+
           {/* Events list */}
           <div className="flex-1 px-4 pb-2">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs text-slate-400">Poslední události</p>
-              {events.length > 0 && (
+              <button
+                onClick={() => setShowEventList(true)}
+                className="text-xs text-accentPrimary"
+              >
+                Všechny události ({events.length}) →
+              </button>
+              {events.length > 0 && !isMatchClosed && (
                 <button
                   onClick={handleDeleteLastEvent}
                   className="text-xs text-accentDanger"
@@ -501,6 +636,11 @@ export default function MatchPage() {
                           : e.result === "goal"
                           ? "Gól"
                           : "Mimo"}
+                        {e.situation && e.situation !== "even" && (
+                          <span className="ml-1 text-accentHighlight">
+                            ({e.situation === "powerplay" ? "PP" : "SH"})
+                          </span>
+                        )}
                         {e.goalPosition && (
                           <span className="ml-1 text-slate-400">
                             → {e.goalPosition.zone.replace("_", " ")}
@@ -536,13 +676,49 @@ export default function MatchPage() {
                 </span>
               </span>
             </div>
+            {/* Share button */}
+            {(totalStats.shots > 0 || (match.manualStats && match.manualStats.shots > 0)) && (
+              <button
+                onClick={async () => {
+                  const report = generateMatchReport(match, events, goalie);
+                  const result = await shareText(
+                    `${match.home} vs ${match.away} - Statistiky brankáře`,
+                    report
+                  );
+                  if (result === "copied") {
+                    alert("Statistiky zkopírovány do schránky!");
+                  } else if (result === "failed") {
+                    alert("Nepodařilo se sdílet statistiky");
+                  }
+                }}
+                className="mt-2 w-full rounded-lg bg-accentPrimary/20 py-2 text-xs font-medium text-accentPrimary"
+              >
+                📤 Sdílet statistiky zápasu
+              </button>
+            )}
           </div>
 
-          <ActionBar
-            onSave={() => addEventQuick("save")}
-            onGoal={() => addEventQuick("goal")}
-            onMiss={() => addEventQuick("miss")}
-          />
+          {!isMatchClosed && (
+            <>
+              {/* Landscape mode button */}
+              {isMobile && (
+                <div className="border-t border-borderSoft bg-bgSurfaceSoft/50 px-4 py-2">
+                  <button
+                    onClick={() => setShowLandscapeMode(true)}
+                    className="w-full rounded-lg bg-accentPrimary/20 py-2 text-xs font-medium text-accentPrimary"
+                  >
+                    📱 Otočit na šířku pro lepší tracking
+                  </button>
+                </div>
+              )}
+              
+              <ActionBar
+                onSave={() => addEventQuick("save")}
+                onGoal={() => addEventQuick("goal")}
+                onMiss={() => addEventQuick("miss")}
+              />
+            </>
+          )}
         </>
       )}
 
@@ -552,7 +728,7 @@ export default function MatchPage() {
         zone={pendingZone}
         header={`${period}. třetina • ${gameTime}`}
         onSubmit={({ result, saveType, goalType, situation, goalPosition }) => {
-          if (!pendingCoords || !match) return;
+          if (!pendingCoords || !match || isMatchClosed) return;
           const now = new Date().toISOString();
           const zone =
             pendingZone ?? getZoneFromCoords(pendingCoords.x, pendingCoords.y);
@@ -574,9 +750,13 @@ export default function MatchPage() {
             saveType,
             goalType,
             situation,
+            inputSource: "live",
+            status: "confirmed",
+            createdAt: now,
           };
           saveEvent(newEvent);
           setEvents((prev) => [...prev, newEvent]);
+          setAllEvents((prev) => [...prev, newEvent]);
           setModalOpen(false);
           setPendingCoords(null);
         }}

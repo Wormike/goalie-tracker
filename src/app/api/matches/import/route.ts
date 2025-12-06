@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
-import type { Match } from "@/lib/types";
+import type { Match, StandingsRow, CompetitionStandings } from "@/lib/types";
 
 interface ScrapedMatch {
   externalId: string;
@@ -20,6 +20,103 @@ const COMPETITIONS = [
   { id: '1884', category: 'Mladší žáci A' },
   { id: '1894', category: 'Mladší žáci B' },
 ];
+
+async function fetchStandingsForCompetition(
+  competitionId: string,
+  season: string,
+  _category: string
+): Promise<CompetitionStandings | null> {
+  // Standings URL for ustecky.ceskyhokej.cz
+  const url = `https://ustecky.ceskyhokej.cz/tabulky?seasonFilter-filter-id=${season}&leagueFilter-filter-id=${competitionId}`;
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'text/html',
+      },
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    
+    clearTimeout(timeoutId);
+    if (!response.ok) return null;
+    
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    const rows: StandingsRow[] = [];
+    
+    // Parse standings table
+    // The table structure: position, team, games, wins, draws, losses, goals for, goals against, points
+    $('table.table tbody tr').each((index, row) => {
+      const cells = $(row).find('td');
+      if (cells.length < 8) return;
+      
+      const position = parseInt($(cells[0]).text().trim()) || index + 1;
+      const teamName = $(cells[1]).text().trim();
+      const gamesPlayed = parseInt($(cells[2]).text().trim()) || 0;
+      const wins = parseInt($(cells[3]).text().trim()) || 0;
+      const draws = parseInt($(cells[4]).text().trim()) || 0;
+      const losses = parseInt($(cells[5]).text().trim()) || 0;
+      
+      // Goals can be in format "XX:YY" or separate columns
+      let goalsFor = 0;
+      let goalsAgainst = 0;
+      const goalsCell = $(cells[6]).text().trim();
+      const goalsMatch = goalsCell.match(/(\d+)\s*[:\-]\s*(\d+)/);
+      if (goalsMatch) {
+        goalsFor = parseInt(goalsMatch[1]) || 0;
+        goalsAgainst = parseInt(goalsMatch[2]) || 0;
+      } else {
+        goalsFor = parseInt(goalsCell) || 0;
+        goalsAgainst = parseInt($(cells[7]).text().trim()) || 0;
+      }
+      
+      // Points might be in column 7 or 8 depending on layout
+      const pointsCell = cells.length > 8 ? $(cells[8]).text().trim() : $(cells[7]).text().trim();
+      const points = parseInt(pointsCell) || 0;
+      
+      // Mark our team
+      const isOurTeam = teamName.toLowerCase().includes('ústí') || teamName.toLowerCase().includes('usti');
+      
+      if (teamName) {
+        rows.push({
+          position,
+          teamName,
+          gamesPlayed,
+          wins,
+          draws,
+          losses,
+          goalsFor,
+          goalsAgainst,
+          goalDifference: goalsFor - goalsAgainst,
+          points,
+          isOurTeam,
+        });
+      }
+    });
+    
+    if (rows.length === 0) return null;
+    
+    // Sort by position
+    rows.sort((a, b) => a.position - b.position);
+    
+    return {
+      id: `standings-${competitionId}-${season}`,
+      competitionId: `comp-${competitionId}`,
+      seasonId: season,
+      externalCompetitionId: competitionId,
+      updatedAt: new Date().toISOString(),
+      rows,
+    };
+  } catch (error) {
+    console.error(`[Standings] Error fetching for competition ${competitionId}:`, error);
+    return null;
+  }
+}
 
 async function fetchAllMatchesForCompetition(
   competitionId: string,
@@ -162,9 +259,17 @@ export async function POST(request: NextRequest) {
 
     matches.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
 
+    // Also fetch standings in parallel for relevant competitions
+    const standingsPromises = competitionsToFetch.map(comp => 
+      fetchStandingsForCompetition(comp.id, season, comp.category)
+    );
+    const standingsResults = await Promise.all(standingsPromises);
+    const standings = standingsResults.filter((s): s is CompetitionStandings => s !== null);
+
     return NextResponse.json({
       success: true,
       matches,
+      standings,
       totalCount: matches.length,
       completedCount: matches.filter(m => m.completed).length,
       upcomingCount: matches.filter(m => !m.completed).length,
