@@ -19,16 +19,25 @@ import type {
   MatchStatus,
 } from "@/lib/types";
 import {
-  getMatchById,
-  getEventsByMatch,
+  getMatchById as getMatchByIdLocal,
+  getEventsByMatch as getEventsByMatchLocal,
   getAllEventsByMatch,
-  saveEvent,
+  saveEvent as saveEventLocal,
   getGoalieById,
   getGoalies,
-  saveMatch,
+  saveMatch as saveMatchLocal,
   saveEvents,
   getEvents,
 } from "@/lib/storage";
+import {
+  getMatchById as getMatchByIdSupabase,
+  updateMatch as updateMatchSupabase,
+} from "@/lib/repositories/matches";
+import {
+  getEventsForMatch as getEventsForMatchSupabase,
+  createEvent as createEventSupabase,
+} from "@/lib/repositories/events";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { generateMatchReport, shareText } from "@/lib/utils";
 
 function getZoneFromCoords(x: number, y: number): ShotZone {
@@ -37,6 +46,12 @@ function getZoneFromCoords(x: number, y: number): ShotZone {
   if (x < 30) return "left_wing";
   if (x > 70) return "right_wing";
   return "slot";
+}
+
+function isUuid(value: string): boolean {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(value);
 }
 
 export default function MatchPage() {
@@ -62,27 +77,64 @@ export default function MatchPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showEventList, setShowEventList] = useState(false);
   const [activeTab, setActiveTab] = useState<"tracking" | "roster">("tracking");
+  const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const m = getMatchById(params.id);
-    if (m) {
-      setMatch(m);
-      setEvents(getEventsByMatch(m.id));
-      setAllEvents(getAllEventsByMatch(m.id));
-      if (m.goalieId) {
-        setGoalie(getGoalieById(m.goalieId) || null);
+  // Load match data - try Supabase first, fall back to localStorage
+  const loadMatchData = async (matchId: string) => {
+    setLoading(true);
+    
+    if (isSupabaseConfigured() && isUuid(matchId)) {
+      try {
+        // Try loading from Supabase
+        const supabaseMatch = await getMatchByIdSupabase(matchId);
+        if (supabaseMatch) {
+          setMatch(supabaseMatch);
+          setDataSource("supabase");
+          
+          // Load events from Supabase
+          const supabaseEvents = await getEventsForMatchSupabase(matchId);
+          setEvents(supabaseEvents);
+          setAllEvents(supabaseEvents);
+          
+          if (supabaseMatch.goalieId) {
+            setGoalie(getGoalieById(supabaseMatch.goalieId) || null);
+          }
+          
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[MatchPage] Failed to load from Supabase:", err);
       }
     }
+    
+    // Fallback to localStorage
+    const localMatch = getMatchByIdLocal(matchId);
+    if (localMatch) {
+      setMatch(localMatch);
+      setDataSource("local");
+      setEvents(getEventsByMatchLocal(localMatch.id));
+      setAllEvents(getAllEventsByMatch(localMatch.id));
+      if (localMatch.goalieId) {
+        setGoalie(getGoalieById(localMatch.goalieId) || null);
+      }
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadMatchData(params.id);
     setGoalies(getGoalies());
   }, [params.id]);
 
-  // Auto-refresh events when match changes
+  // Auto-refresh events when match changes (for local storage mode)
   useEffect(() => {
-    if (match) {
-      setEvents(getEventsByMatch(match.id));
+    if (match && dataSource === "local") {
+      setEvents(getEventsByMatchLocal(match.id));
       setAllEvents(getAllEventsByMatch(match.id));
     }
-  }, [match]);
+  }, [match, dataSource]);
 
   const isMatchClosed = match?.status === "closed" || match?.completed;
 
@@ -115,38 +167,70 @@ export default function MatchPage() {
     setModalOpen(true);
   };
 
-  const addEventQuick = (result: "save" | "goal" | "miss") => {
+  const addEventQuick = async (result: "save" | "goal" | "miss") => {
     if (!match || isMatchClosed) return;
     const now = new Date().toISOString();
     const zone: ShotZone = "slot";
 
-    const newEvent: GoalieEvent = {
-      id: `${Date.now()}`,
-      matchId: match.id,
-      goalieId: goalie?.id || "",
-      period,
-      gameTime,
-      timestamp: now,
-      result,
-      shotPosition: { x: 50, y: 50, zone },
-      situation: "even" as SituationType,
-      inputSource: "live",
-      status: "confirmed",
-      createdAt: now,
-    };
-    saveEvent(newEvent);
-    setEvents((prev) => [...prev, newEvent]);
-    setAllEvents((prev) => [...prev, newEvent]);
+    if (dataSource === "supabase") {
+      // Create event in Supabase
+      const periodStr = period === "OT" ? "OT" : String(period) as "1" | "2" | "3";
+      const createdEvent = await createEventSupabase({
+        match_id: match.id,
+        goalie_id: goalie?.id,
+        period: periodStr,
+        game_time: gameTime,
+        result,
+        shot_x: 50,
+        shot_y: 50,
+        input_source: "live",
+      });
+      
+      if (createdEvent) {
+        setEvents((prev) => [...prev, createdEvent]);
+        setAllEvents((prev) => [...prev, createdEvent]);
+      }
+    } else {
+      // Create event in localStorage
+      const newEvent: GoalieEvent = {
+        id: `${Date.now()}`,
+        matchId: match.id,
+        goalieId: goalie?.id || "",
+        period,
+        gameTime,
+        timestamp: now,
+        result,
+        shotPosition: { x: 50, y: 50, zone },
+        situation: "even" as SituationType,
+        inputSource: "live",
+        status: "confirmed",
+        createdAt: now,
+      };
+      saveEventLocal(newEvent);
+      setEvents((prev) => [...prev, newEvent]);
+      setAllEvents((prev) => [...prev, newEvent]);
+    }
   };
 
-  const handleGoalieChange = (goalieId: string) => {
+  const handleGoalieChange = async (goalieId: string) => {
     if (!match) return;
-    const updatedMatch = { ...match, goalieId };
-    saveMatch(updatedMatch);
-    setMatch(updatedMatch);
+    
+    if (dataSource === "supabase") {
+      // Update in Supabase
+      const updated = await updateMatchSupabase(match.id, { goalie_id: goalieId || undefined });
+      if (updated) {
+        setMatch(updated);
+      }
+    } else {
+      // Update in localStorage
+      const updatedMatch = { ...match, goalieId };
+      saveMatchLocal(updatedMatch);
+      setMatch(updatedMatch);
+    }
+    
     setGoalie(goalieId ? getGoalieById(goalieId) || null : null);
 
-    // Update all events with new goalie ID
+    // Update all events with new goalie ID (localStorage only for now)
     const updatedEvents = events.map((e) => ({ ...e, goalieId }));
     const allEventsStorage = getEvents();
     const otherEvents = allEventsStorage.filter((e) => e.matchId !== match.id);
@@ -168,17 +252,25 @@ export default function MatchPage() {
     setAllEvents((prev) => prev.filter((e) => e.id !== lastEvent.id));
   };
 
-  const toggleMatchStatus = () => {
+  const toggleMatchStatus = async () => {
     if (!match) return;
     const newStatus: MatchStatus = match.status === "closed" ? "open" : "closed";
-    const updatedMatch: Match = {
-      ...match,
-      status: newStatus,
-      completed: newStatus === "closed",
-      updatedAt: new Date().toISOString(),
-    };
-    saveMatch(updatedMatch);
-    setMatch(updatedMatch);
+    
+    if (dataSource === "supabase") {
+      const updated = await updateMatchSupabase(match.id, { status: newStatus });
+      if (updated) {
+        setMatch(updated);
+      }
+    } else {
+      const updatedMatch: Match = {
+        ...match,
+        status: newStatus,
+        completed: newStatus === "closed",
+        updatedAt: new Date().toISOString(),
+      };
+      saveMatchLocal(updatedMatch);
+      setMatch(updatedMatch);
+    }
   };
 
   if (!match) {
@@ -350,9 +442,15 @@ export default function MatchPage() {
         open={showEventList}
         onClose={() => setShowEventList(false)}
         events={allEvents}
-        onEventsChange={() => {
-          setEvents(getEventsByMatch(match.id));
-          setAllEvents(getAllEventsByMatch(match.id));
+        onEventsChange={async () => {
+          if (dataSource === "supabase") {
+            const supabaseEvents = await getEventsForMatchSupabase(match.id);
+            setEvents(supabaseEvents);
+            setAllEvents(supabaseEvents);
+          } else {
+            setEvents(getEventsByMatchLocal(match.id));
+            setAllEvents(getAllEventsByMatch(match.id));
+          }
         }}
         matchClosed={isMatchClosed}
       />
@@ -380,7 +478,8 @@ export default function MatchPage() {
               status: "confirmed",
               createdAt: now,
             };
-            saveEvent(newEvent);
+            // TODO: Add Supabase support for landscape mode events
+            saveEventLocal(newEvent);
             setEvents((prev) => [...prev, newEvent]);
             setAllEvents((prev) => [...prev, newEvent]);
           }}
@@ -754,7 +853,8 @@ export default function MatchPage() {
             status: "confirmed",
             createdAt: now,
           };
-          saveEvent(newEvent);
+          // TODO: Add Supabase support for modal events
+          saveEventLocal(newEvent);
           setEvents((prev) => [...prev, newEvent]);
           setAllEvents((prev) => [...prev, newEvent]);
           setModalOpen(false);

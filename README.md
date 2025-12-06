@@ -34,14 +34,53 @@ Aplikace pro live tracking statistik hokejových brankářů během zápasu.
 
 ## 🚀 Spuštění
 
+### 1. Instalace závislostí
+
 ```bash
-# Instalace závislostí
 npm install
+```
 
-# Spuštění vývojového serveru
+### 2. Nastavení environment proměnných
+
+Aplikace vyžaduje připojení k **Supabase** pro databázové funkce.
+
+1. Zkopírujte soubor `.env.example` do `.env.local`:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. Vyplňte skutečné hodnoty v `.env.local`:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+   DATABASE_URL=postgresql://postgres:password@host:port/postgres
+   ```
+
+3. Hodnoty získáte v [Supabase Dashboard](https://supabase.com/dashboard) → Project Settings → API
+
+> ⚠️ **Důležité:** Soubor `.env.local` se **nesmí commitovat** do Gitu! Je automaticky ignorován v `.gitignore`.
+
+### 3. Spuštění vývojového serveru
+
+```bash
 npm run dev
+```
 
-# Build pro produkci
+### 4. Ověření připojení k Supabase
+
+Po spuštění navštivte endpoint pro test připojení:
+```
+http://localhost:3000/api/ping
+```
+
+Měli byste vidět:
+```json
+{ "ok": true, "message": "Supabase client is configured" }
+```
+
+### 5. Build pro produkci
+
+```bash
 npm run build
 ```
 

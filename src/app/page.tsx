@@ -4,14 +4,19 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Match, Goalie, CompetitionStandings } from "@/lib/types";
 import {
-  getMatches,
+  getMatches as getMatchesLocal,
   getGoalies,
   getGoalieById,
   saveMatch,
-  deleteMatch,
+  deleteMatch as deleteMatchLocal,
   getStandings,
   saveStandings,
 } from "@/lib/storage";
+import {
+  getMatches as getMatchesSupabase,
+  deleteMatch as deleteMatchSupabase,
+} from "@/lib/repositories/matches";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ManualStatsModal } from "@/components/ManualStatsModal";
 import { ImportWizard } from "@/components/ImportWizard";
 import { StandingsModal } from "@/components/StandingsTable";
@@ -45,14 +50,40 @@ export default function HomePage() {
   const [importMode, setImportMode] = useState<"api" | "json">("api");
   const [jsonInput, setJsonInput] = useState("");
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   
   // Standings state
   const [showStandings, setShowStandings] = useState(false);
   const [currentStandings, setCurrentStandings] = useState<CompetitionStandings | null>(null);
   const [loadingStandings, setLoadingStandings] = useState(false);
 
+  // Load matches - try Supabase first, fall back to localStorage
+  const loadMatches = async () => {
+    setLoading(true);
+    
+    if (isSupabaseConfigured()) {
+      try {
+        const supabaseMatches = await getMatchesSupabase();
+        if (supabaseMatches.length > 0) {
+          setMatches(supabaseMatches);
+          setDataSource("supabase");
+          setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.error("[HomePage] Failed to load from Supabase:", err);
+      }
+    }
+    
+    // Fallback to localStorage
+    setMatches(getMatchesLocal());
+    setDataSource("local");
+    setLoading(false);
+  };
+
   useEffect(() => {
-    setMatches(getMatches());
+    loadMatches();
     setGoalies(getGoalies());
   }, []);
 
@@ -192,9 +223,10 @@ export default function HomePage() {
       const data = await response.json();
 
       if (data.success && data.matches) {
-        // Save all imported matches
+        // Save all imported matches to localStorage
         data.matches.forEach((m: Match) => saveMatch(m));
-        setMatches(getMatches());
+        // Reload matches (prefer Supabase if configured)
+        await loadMatches();
 
         // Also save standings if available
         if (data.standings && data.standings.length > 0) {
@@ -248,7 +280,8 @@ export default function HomePage() {
         }
       });
       
-      setMatches(getMatches());
+      // Reload matches (prefer Supabase if configured)
+      loadMatches();
       setImportResult({
         total: importedCount,
         completed: 0,
@@ -282,14 +315,26 @@ export default function HomePage() {
     };
 
     saveMatch(updatedMatch);
-    setMatches(getMatches());
+    // Reload matches
+    loadMatches();
     setEditingMatch(null);
   };
 
-  const handleDeleteMatch = () => {
+  const handleDeleteMatch = async () => {
     if (!deletingMatch) return;
-    deleteMatch(deletingMatch.id);
-    setMatches(getMatches());
+    
+    if (dataSource === "supabase") {
+      const success = await deleteMatchSupabase(deletingMatch.id);
+      if (success) {
+        await loadMatches();
+      } else {
+        alert("Nepodařilo se smazat zápas");
+      }
+    } else {
+      deleteMatchLocal(deletingMatch.id);
+      setMatches(getMatchesLocal());
+    }
+    
     setDeletingMatch(null);
   };
 
@@ -582,7 +627,7 @@ export default function HomePage() {
         open={showImportWizard}
         onClose={() => setShowImportWizard(false)}
         onComplete={(count) => {
-          setMatches(getMatches());
+          loadMatches();
           setShowImportWizard(false);
           alert(`Importováno ${count} zápasů`);
         }}
@@ -645,7 +690,8 @@ export default function HomePage() {
                         // Update only upcoming matches
                         const upcomingFromApi = data.matches.filter((m: Match) => !m.completed);
                         upcomingFromApi.forEach((m: Match) => saveMatch(m));
-                        setMatches(getMatches());
+                        // Reload matches
+                        loadMatches();
                         alert(`Aktualizováno ${upcomingFromApi.length} nadcházejících zápasů`);
                       }
                     } catch (e) {

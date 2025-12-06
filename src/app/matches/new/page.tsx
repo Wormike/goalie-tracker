@@ -13,6 +13,8 @@ import {
   saveTeam,
 } from "@/lib/storage";
 import { Select, Combobox } from "@/components/ui/Select";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { createMatch as createMatchSupabase } from "@/lib/repositories/matches";
 
 // Default team name for quick-fill
 const DEFAULT_HOME_TEAM = "HC Slovan Ústí n.L.";
@@ -147,20 +149,42 @@ export default function NewMatchPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validate()) return;
 
+    const payload = {
+      home_team_id: form.homeTeamId || undefined,
+      away_team_name: form.away,
+      datetime: new Date(form.datetime).toISOString(),
+      competition: form.category || "Přátelský zápas",
+      season: form.seasonId,
+      venue: form.venue || undefined,
+      type: form.matchType,
+      status: "open" as const,
+      goalie_id: form.goalieId || undefined,
+    };
+
+    if (isSupabaseConfigured()) {
+      const created = await createMatchSupabase(payload);
+      if (created) {
+        router.push(`/match/${created.id}`);
+        return;
+      }
+      // If Supabase fails, fall back to local
+    }
+
+    // Fallback to localStorage for offline / legacy
     const match: Match = {
       id: `match-${Date.now()}`,
       home: form.homeTeamName,
       away: form.away,
       homeTeamId: form.homeTeamId || undefined,
-      category: form.category || "Přátelský zápas",
+      category: payload.competition || "Přátelský zápas",
       competitionId: form.competitionId || undefined,
-      datetime: new Date(form.datetime).toISOString(),
-      venue: form.venue || undefined,
+      datetime: payload.datetime,
+      venue: payload.venue,
       matchType: form.matchType,
       goalieId: form.goalieId || undefined,
       seasonId: form.seasonId,
