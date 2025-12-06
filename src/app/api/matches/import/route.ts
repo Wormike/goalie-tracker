@@ -13,47 +13,50 @@ interface ScrapedMatch {
   completed: boolean;
 }
 
-// Competition IDs for ustecky.ceskyhokej.cz
-const COMPETITIONS_BY_SEASON: Record<string, { id: string; category: string }[]> = {
-  '2025-2026': [
-    { id: '1860', category: 'Starší žáci A' },
-    { id: '1872', category: 'Starší žáci B' },
-    { id: '1884', category: 'Mladší žáci A' },
-    { id: '1894', category: 'Mladší žáci B' },
-  ],
-  '2024-2025': [
-    { id: '1696', category: 'Starší žáci A' },
-    { id: '1706', category: 'Starší žáci B' },
-    { id: '1718', category: 'Mladší žáci A' },
-    { id: '1727', category: 'Mladší žáci B' },
-  ],
-};
+// Competition IDs for ustecky.ceskyhokej.cz (verified for 2025-2026 season)
+const COMPETITIONS = [
+  { id: '1860', category: 'Starší žáci A' },
+  { id: '1872', category: 'Starší žáci B' },
+  { id: '1884', category: 'Mladší žáci A' },
+  { id: '1894', category: 'Mladší žáci B' },
+];
 
-async function fetchMatchesFromRegionalSite(
+async function fetchAllMatchesForCompetition(
   competitionId: string,
   season: string,
   category: string
 ): Promise<ScrapedMatch[]> {
-  const allMatches: ScrapedMatch[] = [];
+  // Fetch all rounds at once by not specifying round filter
+  // The site shows current round by default, but we can try fetching multiple
+  const url = `https://ustecky.ceskyhokej.cz/rozpis-utkani-a-vysledky?seasonFilter-filter-id=${season}&leagueFilter-filter-id=${competitionId}`;
   
-  // Fetch all rounds (1-20)
-  for (let round = 1; round <= 20; round++) {
-    const url = `https://ustecky.ceskyhokej.cz/rozpis-utkani-a-vysledky?seasonFilter-filter-id=${season}&leagueFilter-filter-id=${competitionId}&roundFilter-filter-id=${round}`;
+  const matches: ScrapedMatch[] = [];
+  
+  // Fetch rounds 1-12 in parallel (most competitions have ~10-12 rounds)
+  const roundPromises = Array.from({ length: 12 }, (_, i) => i + 1).map(async (round) => {
+    const roundUrl = `${url}&roundFilter-filter-id=${round}`;
     
     try {
-      const response = await fetch(url, {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
+      const response = await fetch(roundUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
+          'Accept': 'text/html',
         },
+        signal: controller.signal,
+        cache: 'no-store',
       });
       
-      if (!response.ok) continue;
+      clearTimeout(timeoutId);
+      if (!response.ok) return [];
       
       const html = await response.text();
       const $ = cheerio.load(html);
+      const roundMatches: ScrapedMatch[] = [];
       
-      $('table.table tbody tr').each((index, row) => {
+      $('table.table tbody tr').each((_, row) => {
         const cells = $(row).find('td');
         if (cells.length < 6) return;
         
@@ -65,7 +68,7 @@ async function fetchMatchesFromRegionalSite(
         
         if (!matchId || !homeTeam || !awayTeam) return;
         
-        // Parse date and time
+        // Parse date
         let datetime = '';
         const dateMatch = dateTimeStr.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/);
         if (dateMatch) {
@@ -83,20 +86,14 @@ async function fetchMatchesFromRegionalSite(
           homeScore = parseInt(scoreMatch[1]);
           awayScore = parseInt(scoreMatch[2]);
           completed = true;
-        } else if (datetime) {
-          const matchDate = new Date(datetime);
-          completed = matchDate < new Date();
+        } else if (datetime && new Date(datetime) < new Date()) {
+          completed = true;
         }
         
-        // Filter only matches involving Slovan Ústí
-        const isSlovanUstiMatch = 
-          homeTeam.toLowerCase().includes('ústí') || 
-          awayTeam.toLowerCase().includes('ústí') ||
-          homeTeam.toLowerCase().includes('usti') || 
-          awayTeam.toLowerCase().includes('usti');
-        
-        if (isSlovanUstiMatch && datetime) {
-          allMatches.push({
+        // Filter Slovan Ústí matches
+        const text = (homeTeam + awayTeam).toLowerCase();
+        if ((text.includes('ústí') || text.includes('usti')) && datetime) {
+          roundMatches.push({
             externalId: `${competitionId}-${matchId}`,
             home: homeTeam,
             away: awayTeam,
@@ -109,35 +106,38 @@ async function fetchMatchesFromRegionalSite(
         }
       });
       
-    } catch (error) {
-      // Continue to next round
+      return roundMatches;
+    } catch {
+      return [];
     }
-  }
+  });
   
-  return allMatches;
+  const results = await Promise.all(roundPromises);
+  results.forEach(r => matches.push(...r));
+  
+  return matches;
 }
 
 export async function POST(request: NextRequest) {
+  const start = Date.now();
+  
   try {
     const body = await request.json();
-    const { competitionId, season = '2025-2026' } = body;
+    const { season = '2025-2026', category } = body;
 
-    const allMatches: ScrapedMatch[] = [];
+    // Fetch all competitions in parallel
+    const competitionsToFetch = category 
+      ? COMPETITIONS.filter(c => c.category === category)
+      : COMPETITIONS;
     
-    // Get competitions for the season
-    const competitions = COMPETITIONS_BY_SEASON[season] || COMPETITIONS_BY_SEASON['2025-2026'];
+    const allResults = await Promise.all(
+      competitionsToFetch.map(comp => 
+        fetchAllMatchesForCompetition(comp.id, season, comp.category)
+      )
+    );
     
-    // If specific competition requested, filter to that one
-    const targetCompetitions = competitionId
-      ? competitions.filter(c => c.id === competitionId)
-      : competitions;
-
-    // Fetch matches from all competitions
-    for (const comp of targetCompetitions) {
-      const matches = await fetchMatchesFromRegionalSite(comp.id, season, comp.category);
-      allMatches.push(...matches);
-    }
-
+    const allMatches = allResults.flat();
+    
     // Remove duplicates
     const uniqueMatches = Array.from(
       new Map(allMatches.map(m => [m.externalId, m])).values()
@@ -157,12 +157,9 @@ export async function POST(request: NextRequest) {
       source: "ceskyhokej" as const,
       completed: m.completed,
       seasonId: season,
-      manualStats: m.completed
-        ? { shots: 0, saves: 0, goals: 0 }
-        : undefined,
+      manualStats: m.completed ? { shots: 0, saves: 0, goals: 0 } : undefined,
     }));
 
-    // Sort by date
     matches.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
 
     return NextResponse.json({
@@ -171,12 +168,18 @@ export async function POST(request: NextRequest) {
       totalCount: matches.length,
       completedCount: matches.filter(m => m.completed).length,
       upcomingCount: matches.filter(m => !m.completed).length,
+      elapsed: Date.now() - start,
     });
   } catch (error) {
-    console.error("Import error:", error);
+    console.error("[Import] Error:", error);
     return NextResponse.json(
-      { error: "Failed to import matches" },
+      { error: "Import failed", details: String(error) },
       { status: 500 }
     );
   }
+}
+
+export async function GET(request: NextRequest) {
+  const season = request.nextUrl.searchParams.get('season') || '2025-2026';
+  return POST({ json: async () => ({ season }) } as NextRequest);
 }
