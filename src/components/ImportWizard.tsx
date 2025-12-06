@@ -6,17 +6,16 @@ import type {
   Goalie,
   Team,
   Competition,
-  ScrapedMatchDraft,
 } from "@/lib/types";
 import {
   getGoalies,
   getTeams,
   getCompetitions,
   saveMatch,
-  saveTeam,
   saveExternalMapping,
   findExternalMapping,
 } from "@/lib/storage";
+import { Select } from "@/components/ui/Select";
 
 interface ImportWizardProps {
   open: boolean;
@@ -300,45 +299,35 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 Přiřaďte je k lokální soutěži a týmu.
               </p>
 
-              <div>
-                <label className="mb-2 block text-xs text-slate-400">
-                  Přiřadit k soutěži
-                </label>
-                <select
-                  value={mappings.competitionId}
-                  onChange={(e) =>
-                    setMappings({ ...mappings, competitionId: e.target.value })
-                  }
-                  className="w-full rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-100"
-                >
-                  <option value="">-- Ponechat z importu --</option>
-                  {competitions.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.category} ({c.seasonId})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Přiřadit k soutěži"
+                value={mappings.competitionId}
+                onChange={(val) =>
+                  setMappings({ ...mappings, competitionId: val })
+                }
+                options={[
+                  { value: "", label: "-- Ponechat z importu --" },
+                  ...competitions.map((c) => ({
+                    value: c.id,
+                    label: `${c.category} (${c.seasonId})`,
+                  })),
+                ]}
+              />
 
-              <div>
-                <label className="mb-2 block text-xs text-slate-400">
-                  Přiřadit domácí tým
-                </label>
-                <select
-                  value={mappings.homeTeamId}
-                  onChange={(e) =>
-                    setMappings({ ...mappings, homeTeamId: e.target.value })
-                  }
-                  className="w-full rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-100"
-                >
-                  <option value="">-- Ponechat z importu --</option>
-                  {teams.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="Přiřadit domácí tým"
+                value={mappings.homeTeamId}
+                onChange={(val) =>
+                  setMappings({ ...mappings, homeTeamId: val })
+                }
+                options={[
+                  { value: "", label: "-- Ponechat z importu --" },
+                  ...teams.map((t) => ({
+                    value: t.id,
+                    label: t.name,
+                  })),
+                ]}
+              />
 
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input
