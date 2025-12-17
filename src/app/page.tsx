@@ -21,12 +21,12 @@ import { ManualStatsModal } from "@/components/ManualStatsModal";
 import { ImportWizard } from "@/components/ImportWizard";
 import { StandingsModal } from "@/components/StandingsTable";
 
-// Preset competitions for HC Slovan Ústí (ustecky.ceskyhokej.cz)
+// Preset competitions for HC Slovan Ústí nad Labem (zapasy.ceskyhokej.cz)
 const COMPETITION_PRESETS = [
-  { id: "1860", name: "Starší žáci A", season: "2025-2026", externalId: "1860" },
-  { id: "1872", name: "Starší žáci B", season: "2025-2026", externalId: "1872" },
-  { id: "1884", name: "Mladší žáci A", season: "2025-2026", externalId: "1884" },
-  { id: "1894", name: "Mladší žáci B", season: "2025-2026", externalId: "1894" },
+  { id: "starsi-zaci-a", name: 'Liga starších žáků "A" sk. 2', season: "2025-2026", externalId: "Z8", standingsSeason: "2026" },
+  { id: "starsi-zaci-b", name: 'Liga starších žáků "B" sk. 10', season: "2025-2026", externalId: "Z7", standingsSeason: "2026" },
+  { id: "mladsi-zaci-a", name: 'Liga mladších žáků "A" sk. 4', season: "2025-2026", externalId: "Z6", standingsSeason: "2026" },
+  { id: "mladsi-zaci-b", name: 'Liga mladších žáků "B" sk. 14', season: "2025-2026", externalId: "Z5", standingsSeason: "2026" },
 ];
 
 export default function HomePage() {
@@ -37,7 +37,7 @@ export default function HomePage() {
   const [importing, setImporting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
   const [importConfig, setImportConfig] = useState({
-    competitionId: "1860",
+    category: "starsi-zaci-a",
     season: "2025-2026",
   });
   const [importResult, setImportResult] = useState<{
@@ -165,7 +165,7 @@ export default function HomePage() {
     }
     
     try {
-      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.season}`);
+      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.standingsSeason || preset.season}`);
       const data = await res.json();
       if (data.success && data.standings) {
         saveStandings(data.standings);
@@ -186,7 +186,7 @@ export default function HomePage() {
     
     setLoadingStandings(true);
     try {
-      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.season}`);
+      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.standingsSeason || preset.season}`);
       const data = await res.json();
       if (data.success && data.standings) {
         saveStandings(data.standings);
@@ -202,7 +202,7 @@ export default function HomePage() {
   const handlePresetChange = (preset: typeof COMPETITION_PRESETS[0]) => {
     setSelectedPreset(preset);
     setImportConfig({
-      competitionId: preset.id,
+      category: preset.id,
       season: preset.season,
     });
   };
@@ -216,7 +216,7 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           season: importConfig.season,
-          competitionId: importConfig.competitionId || undefined,
+          category: importConfig.category || undefined,
         }),
       });
 
@@ -478,14 +478,15 @@ export default function HomePage() {
                   <div className="mt-3 space-y-3">
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">
-                        ID soutěže
+                        Klíč soutěže (slug)
                       </label>
                       <input
                         type="text"
-                        value={importConfig.competitionId}
+                        value={importConfig.category}
                         onChange={(e) =>
-                          setImportConfig({ ...importConfig, competitionId: e.target.value })
+                          setImportConfig({ ...importConfig, category: e.target.value })
                         }
+                        placeholder="např. starsi-zaci-a"
                         className="w-full rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-100"
                       />
                     </div>
@@ -506,8 +507,11 @@ export default function HomePage() {
                 </details>
 
                 <div className="mb-4 rounded-lg bg-accentSuccess/10 p-3 text-xs text-accentSuccess">
-                  <p className="mb-1">✓ Import z ustecky.ceskyhokej.cz</p>
-                  <p className="text-slate-400">Načte všechny zápasy Slovan Ústí pro sezónu 2025-2026</p>
+                  <p className="mb-1">✓ Import ze zapasy.ceskyhokej.cz</p>
+                  <p className="text-slate-400">
+                    Načte zápasy HC Slovan Ústí nad Labem v okně −7 až +21 dní kolem dneška
+                    (podle vybrané sezóny a filtru kategorie).
+                  </p>
                 </div>
               </>
             )}
@@ -566,7 +570,7 @@ export default function HomePage() {
               </button>
               <button
                 onClick={importMode === "api" ? handleImport : handleJsonImport}
-                disabled={importing || (importMode === "api" ? !importConfig.competitionId : !jsonInput.trim())}
+                disabled={importing || (importMode === "api" ? !importConfig.category : !jsonInput.trim())}
                 className="flex-1 rounded-xl bg-accentSuccess py-2.5 text-sm font-semibold text-white disabled:opacity-50"
               >
                 {importing ? "Importuji..." : "Importovat"}
@@ -932,7 +936,7 @@ export default function HomePage() {
             ⚙️ Nastavení
           </Link>
         </div>
-      </div>
-    </main>
+        </div>
+      </main>
   );
 }

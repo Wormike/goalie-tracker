@@ -48,3 +48,5 @@ echo "Vytvořené soubory:"
 ls -la "$OUTPUT_DIR"/*.png 2>/dev/null
 ls -la public/favicon.ico 2>/dev/null
 
+
+

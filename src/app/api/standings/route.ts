@@ -2,151 +2,119 @@ import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 import type { StandingsRow, CompetitionStandings } from "@/lib/types";
 
-// Competition IDs for ustecky.ceskyhokej.cz
-// Tyto ID odpovídají selectu "competitions" na stránce /tabulky
-const COMPETITIONS = [
-  { id: '1860', category: 'Starší žáci A', name: 'Liga starších žáků "A"' },
-  { id: '1872', category: 'Starší žáci B', name: 'Liga starších žáků "B"' },
-  { id: '1884', category: 'Mladší žáci A', name: 'Liga mladších žáků "A"' },
-  { id: '1894', category: 'Mladší žáci B', name: 'Liga mladších žáků "B"' },
-  { id: '1844', category: 'Muži', name: 'Krajská liga mužů Ústeckého kraje' },
-  { id: '1970', category: 'Junioři', name: 'Regionální liga juniorů' },
-  { id: '1986', category: 'Dorost', name: 'Regionální liga dorostu' },
+type CategoryCode = "Z8" | "Z7" | "Z6" | "Z5";
+
+const CATEGORY_CONFIG = [
+  {
+    code: "Z8" as CategoryCode,
+    name: 'Liga starších žáků "A" sk. 2',
+    display: "Starší žáci A (8. třída)",
+  },
+  {
+    code: "Z7" as CategoryCode,
+    name: 'Liga starších žáků "B" sk. 10',
+    display: "Starší žáci B (7. třída)",
+  },
+  {
+    code: "Z6" as CategoryCode,
+    name: 'Liga mladších žáků "A" sk. 4',
+    display: "Mladší žáci A (6. třída)",
+  },
+  {
+    code: "Z5" as CategoryCode,
+    name: 'Liga mladších žáků "B" sk. 14',
+    display: "Mladší žáci B (5. třída)",
+  },
 ];
 
-async function fetchStandingsForCompetition(
-  competitionId: string,
-  season: string
-): Promise<CompetitionStandings | null> {
-  // Web používá POST request s parametry pro správné načtení tabulky
-  // Klíčové je použít správný "do" parameter pro submit formuláře
-  const url = `https://ustecky.ceskyhokej.cz/tabulky`;
-  
-  const formData = new URLSearchParams({
-    'seasons': season,
-    'competitions': competitionId,
-    'do': 'competitionsTableList-competitionsFilter-form-submit',
-  });
-  
+function isSlovanUsti(teamName: string): boolean {
+  const norm = teamName.toLowerCase().replace(/\s+/g, " ").trim();
+  const variants = [
+    "slovan ústí",
+    "hc slovan ústí",
+    "slovan usti",
+    "hc slovan usti",
+  ];
+  return variants.some((v) => norm.includes(v));
+}
+
+async function fetchStandingsFromLitomerice(categoryCode: CategoryCode, season: string): Promise<CompetitionStandings | null> {
+  // NOTE: Although the helper name mentions Litoměřice, the data source
+  // is the Slovan Ústí website, which používá stejný systém standings.
+  const url = `https://slovanusti.cz/standings?season=${season}&category=${categoryCode}`;
+
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-    
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
     const response = await fetch(url, {
-      method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Content-Type': 'application/x-www-form-urlencoded',
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
       },
-      body: formData.toString(),
+      cache: "no-store",
       signal: controller.signal,
-      cache: 'no-store',
     });
-    
+
     clearTimeout(timeoutId);
+
     if (!response.ok) {
-      console.error(`[Standings] HTTP error ${response.status} for competition ${competitionId}`);
+      console.error(`[Standings] HTTP error ${response.status} for ${url}`);
       return null;
     }
-    
+
     const html = await response.text();
     const $ = cheerio.load(html);
+
+    // Pick the first meaningful table on the page
+    const table = $("table").first();
+    if (!table || table.length === 0) {
+      console.warn("[Standings] No table found on standings page");
+      return null;
+    }
+
     const rows: StandingsRow[] = [];
-    
-    // Najdi název soutěže z h2 nadpisu
-    const competitionTitle = $('h2.mb-6').first().text().trim() || 
-      COMPETITIONS.find(c => c.id === competitionId)?.name || 
-      `Soutěž ${competitionId}`;
-    
-    // Parsuj tabulku - struktura: # | Tým | Z | V | VP | PP | P | Skóre | B
-    $('table.table tbody tr, table.table tr').each((index, row) => {
-      const cells = $(row).find('td');
-      if (cells.length < 8) return;
-      
-      // Pozice - odstraň tečku (např. "1." -> 1)
-      const posText = $(cells[0]).text().trim().replace('.', '');
-      const position = parseInt(posText) || index + 1;
-      
-      // Název týmu
-      const teamName = $(cells[1]).text().trim();
+
+    table.find("tbody tr").each((index, row) => {
+      const cells = $(row).find("td");
+      if (cells.length < 5) return;
+
+      // Slovanusti standings tables typically use:
+      // Poř., Tým, Z, V, VP, R, PP, P, Skóre, B
+      const getText = (i: number) =>
+        $(cells[i] || {}).text().trim().replace(/\s+/g, " ");
+
+      const rawPosition = getText(0);
+      const position = parseInt(rawPosition.replace(".", ""), 10) || index + 1;
+
+      const teamName = getText(1);
       if (!teamName) return;
-      
-      // Statistiky - počet sloupců může být 9 nebo 10 podle toho, zda jsou VP/PP
-      const numCols = cells.length;
-      
-      let gamesPlayed = 0;
-      let wins = 0;
-      let winsOT = 0; // VP - výhry v prodloužení
-      let lossesOT = 0; // PP - prohry v prodloužení  
-      let losses = 0;
-      let goalsFor = 0;
-      let goalsAgainst = 0;
-      let points = 0;
-      
-      if (numCols >= 10) {
-        // Rozšířená tabulka: # | Tým | Z | V | VP | PP | P | Skóre | B
-        gamesPlayed = parseInt($(cells[2]).text().trim()) || 0;
-        wins = parseInt($(cells[3]).text().trim()) || 0;
-        winsOT = parseInt($(cells[4]).text().trim()) || 0;
-        lossesOT = parseInt($(cells[5]).text().trim()) || 0;
-        losses = parseInt($(cells[6]).text().trim()) || 0;
-        
-        const goalsCell = $(cells[7]).text().trim();
-        const goalsMatch = goalsCell.match(/(\d+)\s*[:\-]\s*(\d+)/);
-        if (goalsMatch) {
-          goalsFor = parseInt(goalsMatch[1]) || 0;
-          goalsAgainst = parseInt(goalsMatch[2]) || 0;
-        }
-        
-        points = parseInt($(cells[8]).text().trim()) || 0;
-      } else if (numCols >= 9) {
-        // Tabulka s VP/PP: # | Tým | Z | V | VP | PP | P | Skóre | B
-        gamesPlayed = parseInt($(cells[2]).text().trim()) || 0;
-        wins = parseInt($(cells[3]).text().trim()) || 0;
-        winsOT = parseInt($(cells[4]).text().trim()) || 0;
-        lossesOT = parseInt($(cells[5]).text().trim()) || 0;
-        losses = parseInt($(cells[6]).text().trim()) || 0;
-        
-        const goalsCell = $(cells[7]).text().trim();
-        const goalsMatch = goalsCell.match(/(\d+)\s*[:\-]\s*(\d+)/);
-        if (goalsMatch) {
-          goalsFor = parseInt(goalsMatch[1]) || 0;
-          goalsAgainst = parseInt(goalsMatch[2]) || 0;
-        }
-        
-        points = parseInt($(cells[8]).text().trim()) || 0;
-      } else {
-        // Základní tabulka: # | Tým | Z | V | R | P | Skóre | B
-        gamesPlayed = parseInt($(cells[2]).text().trim()) || 0;
-        wins = parseInt($(cells[3]).text().trim()) || 0;
-        const draws = parseInt($(cells[4]).text().trim()) || 0;
-        losses = parseInt($(cells[5]).text().trim()) || 0;
-        
-        const goalsCell = $(cells[6]).text().trim();
-        const goalsMatch = goalsCell.match(/(\d+)\s*[:\-]\s*(\d+)/);
-        if (goalsMatch) {
-          goalsFor = parseInt(goalsMatch[1]) || 0;
-          goalsAgainst = parseInt(goalsMatch[2]) || 0;
-        }
-        
-        points = parseInt($(cells[7]).text().trim()) || 0;
-        winsOT = draws; // Pro kompatibilitu
-      }
-      
-      // Označ náš tým
-      const isOurTeam = teamName.toLowerCase().includes('ústí') || 
-                        teamName.toLowerCase().includes('usti') ||
-                        teamName.toLowerCase().includes('slovan ústí');
-      
+
+      const gamesPlayed = parseInt(getText(2), 10) || 0;
+      const wins = parseInt(getText(3), 10) || 0;
+      const winsOT = parseInt(getText(4), 10) || 0;
+      const draws = parseInt(getText(5), 10) || 0;
+      const lossesOT = parseInt(getText(6), 10) || 0;
+      const losses = parseInt(getText(7), 10) || 0;
+
+      const scoreText = getText(8);
+      const goalsMatch = scoreText.match(/(\d+)\s*[:\-]\s*(\d+)/);
+      const goalsFor = goalsMatch ? parseInt(goalsMatch[1], 10) : 0;
+      const goalsAgainst = goalsMatch ? parseInt(goalsMatch[2], 10) : 0;
+
+      const points = parseInt(getText(9), 10) || 0;
+
+      const isOurTeam = isSlovanUsti(teamName);
+
       rows.push({
         position,
         teamName,
         gamesPlayed,
         wins,
         winsOT,
+        draws,
         lossesOT,
-        draws: winsOT, // Pro zpětnou kompatibilitu
         losses,
         goalsFor,
         goalsAgainst,
@@ -155,68 +123,66 @@ async function fetchStandingsForCompetition(
         isOurTeam,
       });
     });
-    
+
     if (rows.length === 0) {
-      console.warn(`[Standings] No rows found for competition ${competitionId}`);
+      console.warn("[Standings] No rows parsed from standings table");
       return null;
     }
-    
-    // Seřaď podle pozice
+
     rows.sort((a, b) => a.position - b.position);
-    
-    console.log(`[Standings] Loaded ${rows.length} teams for ${competitionTitle}`);
-    
+
+    const config = CATEGORY_CONFIG.find((c) => c.code === categoryCode);
+
     return {
-      id: `standings-${competitionId}-${season}`,
-      competitionId: `comp-${competitionId}`,
-      competitionName: competitionTitle,
+      id: `standings-${categoryCode}-${season}`,
+      competitionId: categoryCode,
+      competitionName: config?.name || categoryCode,
       seasonId: season,
-      externalCompetitionId: competitionId,
+      externalCompetitionId: categoryCode,
       updatedAt: new Date().toISOString(),
       rows,
     };
   } catch (error) {
-    console.error(`[Standings] Error fetching for competition ${competitionId}:`, error);
+    console.error(`[Standings] Error fetching for category ${categoryCode}:`, error);
     return null;
   }
 }
 
 export async function GET(request: NextRequest) {
-  const season = request.nextUrl.searchParams.get('season') || '2025-2026';
-  const competitionId = request.nextUrl.searchParams.get('competitionId');
-  
+  const season = request.nextUrl.searchParams.get("season") || "2026";
+  const competitionId = (request.nextUrl.searchParams.get("competitionId") ||
+    request.nextUrl.searchParams.get("category")) as CategoryCode | null;
+
   const start = Date.now();
-  
+
   try {
     if (competitionId) {
-      // Fetch single competition standings
-      const standings = await fetchStandingsForCompetition(competitionId, season);
-      
+      const standings = await fetchStandingsFromLitomerice(competitionId, season);
+
       if (!standings) {
         return NextResponse.json(
           { error: "Standings not found", competitionId, season },
           { status: 404 }
         );
       }
-      
+
       return NextResponse.json({
         success: true,
         standings,
         elapsed: Date.now() - start,
       });
     }
-    
-    // Fetch all competitions standings
-    const standingsPromises = COMPETITIONS.map(comp => 
-      fetchStandingsForCompetition(comp.id, season)
+
+    const standingsPromises = CATEGORY_CONFIG.map((comp) =>
+      fetchStandingsFromLitomerice(comp.code, season)
     );
     const results = await Promise.all(standingsPromises);
     const standings = results.filter((s): s is CompetitionStandings => s !== null);
-    
+
     return NextResponse.json({
       success: true,
       standings,
-      competitions: COMPETITIONS,
+      competitions: CATEGORY_CONFIG,
       elapsed: Date.now() - start,
     });
   } catch (error) {
@@ -230,39 +196,39 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { season = '2025-2026', competitionId } = body;
-  
+  const season: string = body.season || "2026";
+  const competitionId: CategoryCode | undefined = body.competitionId || body.category;
+
   const start = Date.now();
-  
+
   try {
     if (competitionId) {
-      const standings = await fetchStandingsForCompetition(competitionId, season);
-      
+      const standings = await fetchStandingsFromLitomerice(competitionId, season);
+
       if (!standings) {
         return NextResponse.json(
           { error: "Standings not found", competitionId, season },
           { status: 404 }
         );
       }
-      
+
       return NextResponse.json({
         success: true,
         standings,
         elapsed: Date.now() - start,
       });
     }
-    
-    // Fetch all competitions
-    const standingsPromises = COMPETITIONS.map(comp => 
-      fetchStandingsForCompetition(comp.id, season)
+
+    const standingsPromises = CATEGORY_CONFIG.map((comp) =>
+      fetchStandingsFromLitomerice(comp.code, season)
     );
     const results = await Promise.all(standingsPromises);
     const standings = results.filter((s): s is CompetitionStandings => s !== null);
-    
+
     return NextResponse.json({
       success: true,
       standings,
-      competitions: COMPETITIONS,
+      competitions: CATEGORY_CONFIG,
       elapsed: Date.now() - start,
     });
   } catch (error) {

@@ -25,12 +25,12 @@ interface ImportWizardProps {
 
 type Step = 0 | 1 | 2 | 3;
 
-// Competition presets for ustecky.ceskyhokej.cz
+// Competition presets for zapasy.ceskyhokej.cz
 const COMPETITION_PRESETS = [
-  { id: "1860", name: "Starší žáci A", season: "2025-2026" },
-  { id: "1872", name: "Starší žáci B", season: "2025-2026" },
-  { id: "1884", name: "Mladší žáci A", season: "2025-2026" },
-  { id: "1894", name: "Mladší žáci B", season: "2025-2026" },
+  { id: "starsi-zaci-a", name: 'Liga starších žáků "A" sk. 2', season: "2025-2026" },
+  { id: "starsi-zaci-b", name: 'Liga starších žáků "B" sk. 10', season: "2025-2026" },
+  { id: "mladsi-zaci-a", name: 'Liga mladších žáků "A" sk. 4', season: "2025-2026" },
+  { id: "mladsi-zaci-b", name: 'Liga mladších žáků "B" sk. 14', season: "2025-2026" },
 ];
 
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
@@ -96,7 +96,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           season: selectedPreset.season,
-          competitionId: compId,
+          category: compId,
         }),
       });
 
@@ -269,11 +269,11 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
 
               <details className="rounded-lg bg-slate-800/50 p-3">
                 <summary className="cursor-pointer text-xs text-slate-400">
-                  Vlastní ID soutěže
+                  Vlastní klíč soutěže
                 </summary>
                 <input
                   type="text"
-                  placeholder="např. 1860"
+                  placeholder="např. starsi-zaci-a"
                   value={customCompetitionId}
                   onChange={(e) => setCustomCompetitionId(e.target.value)}
                   className="mt-2 w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
@@ -282,7 +282,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
 
               <div className="rounded-lg bg-slate-800/50 p-3 text-xs text-slate-400">
                 <p>
-                  📍 Zdroj: <span className="text-slate-200">ustecky.ceskyhokej.cz</span>
+                  📍 Zdroj: <span className="text-slate-200">zapasy.ceskyhokej.cz</span>
                 </p>
                 <p className="mt-1">
                   📅 Sezóna: <span className="text-slate-200">{selectedPreset.season}</span>
