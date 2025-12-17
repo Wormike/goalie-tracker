@@ -39,9 +39,9 @@ function isSlovanUsti(teamName: string): boolean {
 }
 
 async function fetchStandingsFromLitomerice(categoryCode: CategoryCode, season: string): Promise<CompetitionStandings | null> {
-  // NOTE: Although the helper name mentions Litoměřice, the data source
-  // is the Slovan Ústí website, which používá stejný systém standings.
-  const url = `https://slovanusti.cz/standings?season=${season}&category=${categoryCode}`;
+  // Zdrojová data bereme z webu Litoměřic (stejný systém pro celou soutěž),
+  // ale v aplikaci pořád zvýrazňujeme HC Slovan Ústí jako „náš“ tým.
+  const url = `https://www.hclitomerice.cz/standings?season=${season}&category=${categoryCode}`;
 
   try {
     const controller = new AbortController();

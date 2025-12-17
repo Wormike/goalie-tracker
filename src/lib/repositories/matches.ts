@@ -130,13 +130,20 @@ export async function getMatches(): Promise<Match[]> {
       .order("datetime", { ascending: false });
 
     if (error) {
-      console.error("[matches] Error fetching matches:", error.message);
+      console.warn("[matches] Error response fetching matches from Supabase:", error.message);
       return [];
     }
 
     return (data || []).map(dbMatchToAppMatch);
   } catch (err) {
-    console.error("[matches] Unexpected error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    // In dev prostředí se často objevuje TypeError: Load failed, když není dostupná síť
+    // nebo je Supabase URL špatně. Není to fatální – aplikace stejně přejde na localStorage.
+    if (message.includes("Load failed")) {
+      console.warn("[matches] Supabase request failed (Load failed) – falling back to local matches.");
+    } else {
+      console.error("[matches] Unexpected error fetching matches:", err);
+    }
     return [];
   }
 }
