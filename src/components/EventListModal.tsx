@@ -289,187 +289,196 @@ export function EventListModal({
 
       {/* Edit Modal */}
       {editingEvent && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-bgSurfaceSoft p-5">
-            <h3 className="mb-4 text-center font-semibold">Upravit událost</h3>
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70 sm:items-center sm:p-4">
+          <div className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl bg-bgSurfaceSoft sm:rounded-2xl">
+            {/* Fixed header */}
+            <div className="shrink-0 p-5 pb-0">
+              <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-700 sm:hidden" />
+              <h3 className="mb-4 text-center font-semibold">Upravit událost</h3>
 
-            {/* Tabs */}
-            <div className="mb-4 flex gap-1 rounded-lg bg-slate-800 p-1">
-              <button
-                onClick={() => setEditTab("basic")}
-                className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
-                  editTab === "basic"
-                    ? "bg-accentPrimary text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Základní
-              </button>
-              <button
-                onClick={() => setEditTab("position")}
-                className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
-                  editTab === "position"
-                    ? "bg-accentPrimary text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Pozice střely
-              </button>
-              <button
-                onClick={() => setEditTab("target")}
-                className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
-                  editTab === "target"
-                    ? "bg-accentPrimary text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Umístění
-              </button>
+              {/* Tabs */}
+              <div className="mb-4 flex gap-1 rounded-lg bg-slate-800 p-1">
+                <button
+                  onClick={() => setEditTab("basic")}
+                  className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
+                    editTab === "basic"
+                      ? "bg-accentPrimary text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Základní
+                </button>
+                <button
+                  onClick={() => setEditTab("position")}
+                  className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
+                    editTab === "position"
+                      ? "bg-accentPrimary text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Pozice střely
+                </button>
+                <button
+                  onClick={() => setEditTab("target")}
+                  className={`flex-1 rounded-md py-2 text-xs font-medium transition-colors ${
+                    editTab === "target"
+                      ? "bg-accentPrimary text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Umístění
+                </button>
+              </div>
             </div>
 
-            {/* Basic tab */}
-            {editTab === "basic" && (
-              <>
-                {/* Result */}
-                <div className="mb-4">
-                  <label className="mb-2 block text-xs text-slate-400">
-                    Výsledek
-                  </label>
-                  <div className="flex gap-2">
-                    {(["save", "goal", "miss"] as ResultType[]).map((r) => (
-                      <button
-                        key={r}
-                        onClick={() =>
-                          setEditingEvent({ ...editingEvent, result: r })
-                        }
-                        className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
-                          editingEvent.result === r
-                            ? r === "save"
-                              ? "bg-accentSuccess text-white"
-                              : r === "goal"
-                              ? "bg-accentDanger text-white"
-                              : "bg-slate-600 text-white"
-                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                        }`}
-                      >
-                        {r === "save" ? "Zákrok" : r === "goal" ? "Gól" : "Mimo"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Situation */}
-                <div className="mb-4">
-                  <label className="mb-2 block text-xs text-slate-400">
-                    Situace
-                  </label>
-                  <div className="flex gap-2">
-                    {(["even", "powerplay", "shorthanded"] as SituationType[]).map(
-                      (s) => (
+            {/* Scrollable content area */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-5">
+              {/* Basic tab */}
+              {editTab === "basic" && (
+                <>
+                  {/* Result */}
+                  <div className="mb-4">
+                    <label className="mb-2 block text-xs text-slate-400">
+                      Výsledek
+                    </label>
+                    <div className="flex gap-2">
+                      {(["save", "goal", "miss"] as ResultType[]).map((r) => (
                         <button
-                          key={s}
+                          key={r}
                           onClick={() =>
-                            setEditingEvent({ ...editingEvent, situation: s })
+                            setEditingEvent({ ...editingEvent, result: r })
+                          }
+                          className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                            editingEvent.result === r
+                              ? r === "save"
+                                ? "bg-accentSuccess text-white"
+                                : r === "goal"
+                                ? "bg-accentDanger text-white"
+                                : "bg-slate-600 text-white"
+                              : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                          }`}
+                        >
+                          {r === "save" ? "Zákrok" : r === "goal" ? "Gól" : "Mimo"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Situation */}
+                  <div className="mb-4">
+                    <label className="mb-2 block text-xs text-slate-400">
+                      Situace
+                    </label>
+                    <div className="flex gap-2">
+                      {(["even", "powerplay", "shorthanded"] as SituationType[]).map(
+                        (s) => (
+                          <button
+                            key={s}
+                            onClick={() =>
+                              setEditingEvent({ ...editingEvent, situation: s })
+                            }
+                            className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
+                              editingEvent.situation === s
+                                ? "bg-accentPrimary text-white"
+                                : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                            }`}
+                          >
+                            {s === "even" ? "5v5" : s === "powerplay" ? "PP" : "SH"}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Period */}
+                  <div className="mb-4">
+                    <label className="mb-2 block text-xs text-slate-400">
+                      Třetina
+                    </label>
+                    <div className="flex gap-2">
+                      {([1, 2, 3, "OT"] as Period[]).map((p) => (
+                        <button
+                          key={p}
+                          onClick={() =>
+                            setEditingEvent({ ...editingEvent, period: p })
                           }
                           className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
-                            editingEvent.situation === s
+                            editingEvent.period === p
                               ? "bg-accentPrimary text-white"
                               : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                           }`}
                         >
-                          {s === "even" ? "5v5" : s === "powerplay" ? "PP" : "SH"}
+                          {p === "OT" ? "OT" : `${p}.`}
                         </button>
-                      )
-                    )}
+                      ))}
+                    </div>
                   </div>
-                </div>
 
-                {/* Period */}
+                  {/* Game time */}
+                  <div className="mb-4">
+                    <label className="mb-2 block text-xs text-slate-400">
+                      Čas v zápase
+                    </label>
+                    <input
+                      type="text"
+                      value={editingEvent.gameTime}
+                      onChange={(e) =>
+                        setEditingEvent({ ...editingEvent, gameTime: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-borderSoft bg-slate-800 px-3 py-2.5 text-sm text-slate-100 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
+                      placeholder="00:00"
+                    />
+                  </div>
+                </>
+              )}
+
+              {/* Position tab */}
+              {editTab === "position" && (
                 <div className="mb-4">
                   <label className="mb-2 block text-xs text-slate-400">
-                    Třetina
+                    Pozice střely na ledě
                   </label>
-                  <div className="flex gap-2">
-                    {([1, 2, 3, "OT"] as Period[]).map((p) => (
-                      <button
-                        key={p}
-                        onClick={() =>
-                          setEditingEvent({ ...editingEvent, period: p })
-                        }
-                        className={`flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
-                          editingEvent.period === p
-                            ? "bg-accentPrimary text-white"
-                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-                        }`}
-                      >
-                        {p === "OT" ? "OT" : `${p}.`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Game time */}
-                <div className="mb-4">
-                  <label className="mb-2 block text-xs text-slate-400">
-                    Čas v zápase
-                  </label>
-                  <input
-                    type="text"
-                    value={editingEvent.gameTime}
-                    onChange={(e) =>
-                      setEditingEvent({ ...editingEvent, gameTime: e.target.value })
-                    }
-                    className="w-full rounded-xl border border-borderSoft bg-slate-800 px-3 py-2.5 text-sm text-slate-100 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
-                    placeholder="00:00"
+                  <MiniRinkSelector
+                    position={editingEvent.shotPosition}
+                    onSelect={handleShotPositionChange}
                   />
                 </div>
-              </>
-            )}
+              )}
 
-            {/* Position tab */}
-            {editTab === "position" && (
-              <div className="mb-4">
-                <label className="mb-2 block text-xs text-slate-400">
-                  Pozice střely na ledě
-                </label>
-                <MiniRinkSelector
-                  position={editingEvent.shotPosition}
-                  onSelect={handleShotPositionChange}
-                />
+              {/* Target tab */}
+              {editTab === "target" && (
+                <div className="mb-4 pb-4">
+                  <label className="mb-2 block text-xs text-slate-400">
+                    Umístění střely v brance
+                  </label>
+                  <GoalTargetSelector
+                    selected={editingEvent.shotTarget}
+                    onSelect={handleShotTargetChange}
+                    catchHand={goalieCatchHand}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Fixed footer with actions */}
+            <div className="shrink-0 border-t border-borderSoft bg-bgSurfaceSoft p-5 pb-8 sm:pb-5">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setEditingEvent(null);
+                    setEditTab("basic");
+                  }}
+                  className="flex-1 rounded-xl bg-slate-800 py-2.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  Zrušit
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="flex-1 rounded-xl bg-accentPrimary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accentPrimary/90"
+                >
+                  Uložit
+                </button>
               </div>
-            )}
-
-            {/* Target tab */}
-            {editTab === "target" && (
-              <div className="mb-4">
-                <label className="mb-2 block text-xs text-slate-400">
-                  Umístění střely v brance
-                </label>
-                <GoalTargetSelector
-                  selected={editingEvent.shotTarget}
-                  onSelect={handleShotTargetChange}
-                  catchHand={goalieCatchHand}
-                />
-              </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setEditingEvent(null);
-                  setEditTab("basic");
-                }}
-                className="flex-1 rounded-xl bg-slate-800 py-2.5 text-sm text-slate-300 transition-colors hover:bg-slate-700"
-              >
-                Zrušit
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                className="flex-1 rounded-xl bg-accentPrimary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accentPrimary/90"
-              >
-                Uložit
-              </button>
             </div>
           </div>
         </div>

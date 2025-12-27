@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import type { Match, Goalie, CompetitionStandings } from "@/lib/types";
+import type { Match, Goalie } from "@/lib/types";
 import {
   getMatches as getMatchesLocal,
   getGoalies,
   getGoalieById,
   saveMatch,
   deleteMatch as deleteMatchLocal,
-  getStandings,
-  saveStandings,
 } from "@/lib/storage";
 import {
   getMatches as getMatchesSupabase,
@@ -19,20 +17,50 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ManualStatsModal } from "@/components/ManualStatsModal";
 import { ImportWizard } from "@/components/ImportWizard";
-import { StandingsModal } from "@/components/StandingsTable";
+import { StandingsButton } from "@/components/StandingsLink";
+import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
+import { useCompetition } from "@/contexts/CompetitionContext";
 
 // Preset competitions for HC Slovan Ústí nad Labem (zapasy.ceskyhokej.cz)
+// standingsUrl points to external ceskyhokej.cz page
 const COMPETITION_PRESETS = [
-  { id: "starsi-zaci-a", name: 'Liga starších žáků "A" sk. 2', season: "2025-2026", externalId: "Z8", standingsSeason: "2026" },
-  { id: "starsi-zaci-b", name: 'Liga starších žáků "B" sk. 10', season: "2025-2026", externalId: "Z7", standingsSeason: "2026" },
-  { id: "mladsi-zaci-a", name: 'Liga mladších žáků "A" sk. 4', season: "2025-2026", externalId: "Z6", standingsSeason: "2026" },
-  { id: "mladsi-zaci-b", name: 'Liga mladších žáků "B" sk. 14', season: "2025-2026", externalId: "Z5", standingsSeason: "2026" },
+  { 
+    id: "starsi-zaci-a", 
+    name: 'Liga starších žáků "A" sk. 2', 
+    season: "2025-2026", 
+    externalId: "Z8",
+    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/24"
+  },
+  { 
+    id: "starsi-zaci-b", 
+    name: 'Liga starších žáků "B" sk. 10', 
+    season: "2025-2026", 
+    externalId: "Z7",
+    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/26"
+  },
+  { 
+    id: "mladsi-zaci-a", 
+    name: 'Liga mladších žáků "A" sk. 4', 
+    season: "2025-2026", 
+    externalId: "Z6",
+    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/25"
+  },
+  { 
+    id: "mladsi-zaci-b", 
+    name: 'Liga mladších žáků "B" sk. 14', 
+    season: "2025-2026", 
+    externalId: "Z5",
+    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/27"
+  },
 ];
 
 export default function HomePage() {
+  // User competition context
+  const { activeCompetition, hasCompetitions } = useCompetition();
+  
   const [matches, setMatches] = useState<Match[]>([]);
   const [goalies, setGoalies] = useState<Goalie[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
@@ -52,11 +80,6 @@ export default function HomePage() {
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
-  
-  // Standings state
-  const [showStandings, setShowStandings] = useState(false);
-  const [currentStandings, setCurrentStandings] = useState<CompetitionStandings | null>(null);
-  const [loadingStandings, setLoadingStandings] = useState(false);
 
   // Load matches - try Supabase first, fall back to localStorage
   const loadMatches = async () => {
@@ -92,11 +115,17 @@ export default function HomePage() {
     new Set(matches.map((m) => m.category).filter(Boolean))
   ).sort();
 
-  // Filter matches by category
-  const filteredMatches =
-    categoryFilter === "all"
-      ? matches
-      : matches.filter((m) => m.category === categoryFilter);
+  // Auto-select first category if none selected
+  useEffect(() => {
+    if (categoryFilter === null && categories.length > 0) {
+      setCategoryFilter(categories[0]);
+    }
+  }, [categoryFilter, categories]);
+
+  // Filter matches by category (no "all" option - always filter by selected category)
+  const filteredMatches = categoryFilter
+    ? matches.filter((m) => m.category === categoryFilter)
+    : matches;
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
@@ -128,75 +157,15 @@ export default function HomePage() {
     cup: "Pohár",
   };
 
-  // Find standings for current category filter
-  const findStandingsForCategory = (category: string): CompetitionStandings | null => {
-    const allStandings = getStandings();
+  // Get standings URL for current category filter or active competition
+  const getStandingsUrlForCategory = (category: string): string | undefined => {
+    // First check if active competition has a standings URL
+    if (activeCompetition?.standingsUrl) {
+      return activeCompetition.standingsUrl;
+    }
+    // Fall back to preset
     const preset = COMPETITION_PRESETS.find(p => p.name === category);
-    if (preset) {
-      return allStandings.find(s => s.externalCompetitionId === preset.externalId) || null;
-    }
-    // Try to find by competition ID from matches
-    const matchWithCompetition = matches.find(m => m.category === category && m.competitionId);
-    if (matchWithCompetition?.competitionId) {
-      return allStandings.find(s => s.competitionId === matchWithCompetition.competitionId) || null;
-    }
-    return null;
-  };
-
-  // Load standings for current filter
-  const handleLoadStandings = async () => {
-    const category = categoryFilter !== "all" ? categoryFilter : categories[0];
-    if (!category) return;
-    
-    // Check local storage first
-    const localStandings = findStandingsForCategory(category);
-    if (localStandings) {
-      setCurrentStandings(localStandings);
-      setShowStandings(true);
-      return;
-    }
-    
-    // Fetch from API
-    setLoadingStandings(true);
-    const preset = COMPETITION_PRESETS.find(p => p.name === category);
-    if (!preset) {
-      setLoadingStandings(false);
-      return;
-    }
-    
-    try {
-      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.standingsSeason || preset.season}`);
-      const data = await res.json();
-      if (data.success && data.standings) {
-        saveStandings(data.standings);
-        setCurrentStandings(data.standings);
-        setShowStandings(true);
-      }
-    } catch (error) {
-      console.error("Failed to load standings:", error);
-    } finally {
-      setLoadingStandings(false);
-    }
-  };
-
-  const handleRefreshStandings = async () => {
-    const category = categoryFilter !== "all" ? categoryFilter : categories[0];
-    const preset = COMPETITION_PRESETS.find(p => p.name === category);
-    if (!preset) return;
-    
-    setLoadingStandings(true);
-    try {
-      const res = await fetch(`/api/standings?competitionId=${preset.externalId}&season=${preset.standingsSeason || preset.season}`);
-      const data = await res.json();
-      if (data.success && data.standings) {
-        saveStandings(data.standings);
-        setCurrentStandings(data.standings);
-      }
-    } catch (error) {
-      console.error("Failed to refresh standings:", error);
-    } finally {
-      setLoadingStandings(false);
-    }
+    return preset?.standingsUrl;
   };
 
   const handlePresetChange = (preset: typeof COMPETITION_PRESETS[0]) => {
@@ -338,22 +307,46 @@ export default function HomePage() {
     setDeletingMatch(null);
   };
 
-  // Check if standings are available for current category
-  const currentCategoryStandings = categoryFilter !== "all" 
-    ? findStandingsForCategory(categoryFilter) 
-    : (categories.length > 0 ? findStandingsForCategory(categories[0]) : null);
+  const handleDeleteFilteredMatches = async () => {
+    if (filteredMatches.length === 0) return;
+    const label = categoryFilter
+      ? `opravdu smazat všech ${filteredMatches.length} zápasů v kategorii "${categoryFilter}"?`
+      : `opravdu smazat všech ${filteredMatches.length} zápasů?`;
+    if (!confirm(`Chcete ${label}`)) return;
+
+    if (dataSource === "supabase") {
+      for (const m of filteredMatches) {
+        // best-effort – pokud se některý zápas nepodaří smazat, pokračujeme dál
+        // a po dokončení znovu načteme seznam
+        // eslint-disable-next-line no-await-in-loop
+        await deleteMatchSupabase(m.id);
+      }
+      await loadMatches();
+    } else {
+      filteredMatches.forEach((m) => deleteMatchLocal(m.id));
+      setMatches(getMatchesLocal());
+    }
+  };
+
+  // Get current standings URL based on category filter or active competition
+  const currentStandingsUrl = categoryFilter
+    ? getStandingsUrlForCategory(categoryFilter) 
+    : (activeCompetition?.standingsUrl || (categories.length > 0 ? getStandingsUrlForCategory(categories[0]) : undefined));
 
   return (
     <main className="flex flex-1 flex-col gap-4 px-4 py-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">🥅 Goalie Tracker</h1>
-        <Link
-          href="/goalies"
-          className="rounded-lg bg-bgSurfaceSoft px-3 py-1.5 text-xs text-accentPrimary"
-        >
-          Brankáři ({goalies.length})
-        </Link>
+        <div className="flex items-center gap-2">
+          <CompetitionSwitcher />
+          <Link
+            href="/goalies"
+            className="rounded-lg bg-bgSurfaceSoft px-3 py-1.5 text-xs text-accentPrimary"
+          >
+            Brankáři ({goalies.length})
+          </Link>
+        </div>
       </div>
 
       {/* Quick actions */}
@@ -382,35 +375,35 @@ export default function HomePage() {
         Rychlý import / JSON import
       </button>
 
-      {/* Category filter */}
+      {/* Category filter - no "Vše" option, always filter by category */}
       {categories.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setCategoryFilter("all")}
-            className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-              categoryFilter === "all"
-                ? "bg-accentPrimary text-white"
-                : "bg-bgSurfaceSoft text-slate-400"
-            }`}
-          >
-            Vše ({matches.length})
-          </button>
-          {categories.map((cat) => {
-            const count = matches.filter((m) => m.category === cat).length;
-            return (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                  categoryFilter === cat
-                    ? "bg-accentPrimary text-white"
-                    : "bg-bgSurfaceSoft text-slate-400"
-                }`}
-              >
-                {cat} ({count})
-              </button>
-            );
-          })}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => {
+              const count = matches.filter((m) => m.category === cat).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
+                    categoryFilter === cat
+                      ? "bg-accentPrimary text-white"
+                      : "bg-bgSurfaceSoft text-slate-400"
+                  }`}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
+          </div>
+          {filteredMatches.length > 0 && (
+            <button
+              onClick={handleDeleteFilteredMatches}
+              className="rounded-full bg-accentDanger/10 px-3 py-1.5 text-[10px] font-medium text-accentDanger hover:bg-accentDanger/20"
+            >
+              🗑️ Smazat {filteredMatches.length} záznamů
+            </button>
+          )}
         </div>
       )}
 
@@ -637,16 +630,6 @@ export default function HomePage() {
         }}
       />
 
-      {/* Standings Modal */}
-      <StandingsModal
-        open={showStandings}
-        onClose={() => setShowStandings(false)}
-        standings={currentStandings}
-        title={categoryFilter !== "all" ? `Tabulka: ${categoryFilter}` : "Tabulka soutěže"}
-        loading={loadingStandings}
-        onRefresh={handleRefreshStandings}
-      />
-
       {/* Matches list */}
       {matches.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
@@ -778,39 +761,16 @@ export default function HomePage() {
           {/* Past matches */}
           {pastMatches.length > 0 && (
             <section>
-              {/* Section header with standings link */}
+              {/* Section header with external standings link */}
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-400">
                   ODEHRANÉ ZÁPASY ({pastMatches.length})
                 </h2>
-                <button
-                  onClick={handleLoadStandings}
-                  disabled={loadingStandings}
-                  className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-accentPrimary hover:bg-slate-700 disabled:opacity-50"
-                  aria-label="Zobrazit tabulku soutěže"
-                >
-                  {loadingStandings ? (
-                    <span className="animate-spin">⏳</span>
-                  ) : (
-                    <span>📊</span>
-                  )}
-                  Tabulka
-                </button>
+                <StandingsButton 
+                  url={currentStandingsUrl} 
+                  label="Tabulka"
+                />
               </div>
-              
-              {/* Standings hint if not available */}
-              {!currentCategoryStandings && categoryFilter !== "all" && (
-                <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-800/30 px-3 py-2 text-xs text-slate-500">
-                  <span>Tabulka soutěže zatím není k dispozici</span>
-                  <button
-                    onClick={handleLoadStandings}
-                    disabled={loadingStandings}
-                    className="text-accentPrimary hover:underline disabled:opacity-50"
-                  >
-                    Načíst
-                  </button>
-                </div>
-              )}
 
               <div className="space-y-2">
                 {pastMatches.slice(0, 20).map((m) => {

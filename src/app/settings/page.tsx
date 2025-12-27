@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ExportImportModal } from "@/components/ExportImportModal";
+import { StandingsLink } from "@/components/StandingsLink";
+import { useCompetition, UserCompetition } from "@/contexts/CompetitionContext";
 import {
   getStorageStats,
   getSeasons,
@@ -15,6 +17,7 @@ import {
   generateSeasonId,
   generateSeasonLabel,
 } from "@/lib/storage";
+import { getSyncStatus, uploadToSupabase, downloadFromSupabase, SyncStatus, SyncResult } from "@/lib/sync";
 import type { Season, Team, Competition } from "@/lib/types";
 
 interface SeasonModalProps {
@@ -151,11 +154,310 @@ function SeasonModal({ open, onClose, onSave, editingSeason }: SeasonModalProps)
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Supabase Sync Section
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SupabaseSyncSection({ onDataChange }: { onDataChange: () => void }) {
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<SyncResult | null>(null);
+
+  const loadStatus = async () => {
+    const status = await getSyncStatus();
+    setSyncStatus(status);
+  };
+
+  useEffect(() => {
+    loadStatus();
+  }, []);
+
+  const handleUpload = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await uploadToSupabase();
+      setResult(res);
+      await loadStatus();
+      if (res.success) {
+        onDataChange();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await downloadFromSupabase();
+      setResult(res);
+      await loadStatus();
+      if (res.success) {
+        onDataChange();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="rounded-2xl bg-bgSurfaceSoft p-4">
+      <h2 className="mb-3 text-sm font-semibold text-slate-400">
+        ☁️ CLOUDOVÁ DATABÁZE (SUPABASE)
+      </h2>
+      
+      {!syncStatus ? (
+        <div className="py-4 text-center text-sm text-slate-500">
+          Načítání...
+        </div>
+      ) : !syncStatus.isConfigured ? (
+        <div className="rounded-xl bg-yellow-900/20 p-4 text-center">
+          <div className="mb-2 text-2xl">⚠️</div>
+          <p className="text-sm text-yellow-200">
+            Supabase není nakonfigurován
+          </p>
+          <p className="mt-2 text-xs text-slate-400">
+            Nastav NEXT_PUBLIC_SUPABASE_URL a NEXT_PUBLIC_SUPABASE_ANON_KEY v .env.local
+          </p>
+          <a 
+            href="https://supabase.com/dashboard" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="mt-3 inline-block text-xs text-accentPrimary underline"
+          >
+            Otevřít Supabase Dashboard →
+          </a>
+        </div>
+      ) : (
+        <>
+          {/* Status */}
+          <div className="mb-4 grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-slate-800/50 p-3">
+              <div className="text-xs text-slate-400">Lokální data</div>
+              <div className="mt-1 text-lg font-semibold text-slate-200">
+                {syncStatus.localCounts.goalies} brankářů
+              </div>
+              <div className="text-xs text-slate-500">
+                {syncStatus.localCounts.matches} zápasů • {syncStatus.localCounts.events} událostí
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-800/50 p-3">
+              <div className="text-xs text-slate-400">V cloudu</div>
+              {syncStatus.remoteCounts ? (
+                <>
+                  <div className="mt-1 text-lg font-semibold text-accentPrimary">
+                    {syncStatus.remoteCounts.goalies} brankářů
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {syncStatus.remoteCounts.matches} zápasů • {syncStatus.remoteCounts.events} událostí
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-slate-500">Nedostupné</div>
+              )}
+            </div>
+          </div>
+
+          {syncStatus.lastSync && (
+            <div className="mb-4 text-center text-xs text-slate-500">
+              Poslední synchronizace: {new Date(syncStatus.lastSync).toLocaleString("cs-CZ")}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={handleUpload}
+              disabled={loading}
+              className="flex-1 rounded-xl bg-accentPrimary py-3 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {loading ? "⏳" : "⬆️"} Nahrát do cloudu
+            </button>
+            <button
+              onClick={handleDownload}
+              disabled={loading}
+              className="flex-1 rounded-xl bg-slate-700 py-3 text-sm font-semibold text-slate-200 disabled:opacity-50"
+            >
+              {loading ? "⏳" : "⬇️"} Stáhnout z cloudu
+            </button>
+          </div>
+
+          {/* Result */}
+          {result && (
+            <div className={`mt-4 rounded-xl p-3 ${result.success ? "bg-green-900/30" : "bg-red-900/30"}`}>
+              <div className={`text-sm font-medium ${result.success ? "text-green-300" : "text-red-300"}`}>
+                {result.success ? "✅ Synchronizace dokončena" : "❌ Chyba při synchronizaci"}
+              </div>
+              {result.success && (
+                <div className="mt-1 text-xs text-slate-400">
+                  Nahráno: {result.uploaded.goalies} brankářů, {result.uploaded.matches} zápasů, {result.uploaded.events} událostí
+                </div>
+              )}
+              {result.errors.length > 0 && (
+                <div className="mt-2 text-xs text-red-400">
+                  {result.errors.map((err, i) => (
+                    <div key={i}>{err}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Competition Modal
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface UserCompetitionModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSave: (data: { name: string; standingsUrl?: string }) => void;
+  editingCompetition?: UserCompetition | null;
+}
+
+function UserCompetitionModal({ 
+  open, 
+  onClose, 
+  onSave, 
+  editingCompetition 
+}: UserCompetitionModalProps) {
+  const [name, setName] = useState("");
+  const [standingsUrl, setStandingsUrl] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (editingCompetition) {
+      setName(editingCompetition.name);
+      setStandingsUrl(editingCompetition.standingsUrl || "");
+    } else {
+      setName("");
+      setStandingsUrl("");
+    }
+    setError("");
+  }, [editingCompetition, open]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setError("Název soutěže je povinný");
+      return;
+    }
+
+    // Validate URL if provided
+    if (standingsUrl.trim()) {
+      try {
+        new URL(standingsUrl.trim());
+      } catch {
+        setError("Neplatná URL adresa");
+        return;
+      }
+    }
+
+    onSave({
+      name: trimmedName,
+      standingsUrl: standingsUrl.trim() || undefined,
+    });
+    onClose();
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-bgSurfaceSoft p-5">
+        <h3 className="mb-4 text-center text-lg font-semibold">
+          {editingCompetition ? "Upravit soutěž" : "Nová soutěž"}
+        </h3>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="mb-2 block text-xs text-slate-400">
+              Název soutěže *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="7. třída - Vojta"
+              className="w-full rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-100"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="mb-2 block text-xs text-slate-400">
+              Odkaz na tabulku
+              <span className="ml-1 font-normal text-slate-500">(volitelné)</span>
+            </label>
+            <input
+              type="url"
+              value={standingsUrl}
+              onChange={(e) => setStandingsUrl(e.target.value)}
+              placeholder="https://www.ceskyhokej.cz/competition/standings/24"
+              className="w-full rounded-lg bg-slate-800 px-3 py-3 text-sm text-slate-100"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              💡 Najdi tabulku na ceskyhokej.cz a zkopíruj URL
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-accentDanger/20 px-3 py-2 text-xs text-accentDanger">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-xl bg-slate-800 py-2.5 text-sm text-slate-300"
+            >
+              Zrušit
+            </button>
+            <button
+              type="submit"
+              className="flex-1 rounded-xl bg-accentPrimary py-2.5 text-sm font-semibold text-white"
+            >
+              {editingCompetition ? "Uložit" : "Vytvořit"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings Page
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function SettingsPage() {
+  // User competitions from context
+  const { 
+    competitions: userCompetitions, 
+    activeCompetition,
+    addCompetition: addUserCompetition,
+    updateCompetition: updateUserCompetition,
+    deleteCompetition: deleteUserCompetition,
+    setActiveCompetitionId,
+  } = useCompetition();
+
   const [showExportImport, setShowExportImport] = useState(false);
   const [showSeasonModal, setShowSeasonModal] = useState(false);
+  const [showUserCompModal, setShowUserCompModal] = useState(false);
   const [editingSeason, setEditingSeason] = useState<Season | null>(null);
+  const [editingUserComp, setEditingUserComp] = useState<UserCompetition | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Season | null>(null);
+  const [deleteUserCompConfirm, setDeleteUserCompConfirm] = useState<UserCompetition | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [stats, setStats] = useState({
     goalies: 0,
@@ -217,6 +519,30 @@ export default function SettingsPage() {
   // Sort seasons by start year descending
   const sortedSeasons = [...seasons].sort((a, b) => b.startYear - a.startYear);
 
+  // Handlers for user competitions
+  const handleSaveUserComp = (data: { name: string; standingsUrl?: string }) => {
+    if (editingUserComp) {
+      updateUserCompetition(editingUserComp.id, data);
+    } else {
+      addUserCompetition(data);
+    }
+  };
+
+  const handleEditUserComp = (comp: UserCompetition) => {
+    setEditingUserComp(comp);
+    setShowUserCompModal(true);
+  };
+
+  const handleDeleteUserComp = (comp: UserCompetition) => {
+    setDeleteUserCompConfirm(comp);
+  };
+
+  const confirmDeleteUserComp = () => {
+    if (!deleteUserCompConfirm) return;
+    deleteUserCompetition(deleteUserCompConfirm.id);
+    setDeleteUserCompConfirm(null);
+  };
+
   return (
     <main className="flex min-h-screen flex-col bg-bgMain">
       {/* Header */}
@@ -268,6 +594,99 @@ export default function SettingsPage() {
               <div className="text-xs text-slate-500">Soutěže</div>
             </div>
           </div>
+        </section>
+
+        {/* User Competitions (Moje soutěže) */}
+        <section className="rounded-2xl bg-bgSurfaceSoft p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-400">
+              📋 MOJE SOUTĚŽE
+            </h2>
+            <button
+              onClick={() => {
+                setEditingUserComp(null);
+                setShowUserCompModal(true);
+              }}
+              className="rounded-lg bg-accentPrimary px-3 py-1.5 text-xs font-medium text-white"
+            >
+              + Přidat soutěž
+            </button>
+          </div>
+          
+          {userCompetitions.length === 0 ? (
+            <div className="rounded-xl bg-slate-800/50 p-6 text-center">
+              <div className="mb-2 text-3xl">🏒</div>
+              <p className="text-sm text-slate-400">Zatím nemáte žádné soutěže</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Vytvořte první soutěž pro sledování statistik
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {userCompetitions.map((comp) => (
+                <div
+                  key={comp.id}
+                  className={`rounded-xl px-4 py-3 ${
+                    comp.id === activeCompetition?.id
+                      ? "bg-accentPrimary/20 ring-1 ring-accentPrimary"
+                      : "bg-slate-800"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`font-medium ${
+                          comp.id === activeCompetition?.id 
+                            ? "text-accentPrimary" 
+                            : "text-slate-200"
+                        }`}>
+                          {comp.name}
+                        </span>
+                        {comp.id === activeCompetition?.id && (
+                          <span className="rounded bg-accentPrimary/30 px-2 py-0.5 text-[10px] font-medium text-accentPrimary">
+                            AKTIVNÍ
+                          </span>
+                        )}
+                      </div>
+                      {comp.standingsUrl && (
+                        <div className="mt-1">
+                          <StandingsLink url={comp.standingsUrl} variant="inline" />
+                        </div>
+                      )}
+                      <div className="mt-1 text-xs text-slate-500">
+                        Vytvořeno: {new Date(comp.createdAt).toLocaleDateString("cs-CZ")}
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      {comp.id !== activeCompetition?.id && (
+                        <button
+                          onClick={() => setActiveCompetitionId(comp.id)}
+                          className="rounded-lg bg-slate-700 px-2 py-1.5 text-xs text-accentPrimary hover:bg-slate-600"
+                          title="Nastavit jako aktivní"
+                        >
+                          ✓
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleEditUserComp(comp)}
+                        className="rounded-lg bg-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+                        title="Upravit"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUserComp(comp)}
+                        className="rounded-lg bg-slate-700 px-2 py-1.5 text-xs text-accentDanger hover:bg-slate-600"
+                        title="Smazat"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Seasons Management */}
@@ -417,6 +836,9 @@ export default function SettingsPage() {
           </p>
         </section>
 
+        {/* Supabase Sync */}
+        <SupabaseSyncSection onDataChange={loadData} />
+
         {/* App Info */}
         <section className="rounded-2xl bg-bgSurfaceSoft p-4">
           <h2 className="mb-3 text-sm font-semibold text-slate-400">
@@ -488,6 +910,49 @@ export default function SettingsPage() {
         onClose={() => setShowExportImport(false)}
         onDataChange={loadData}
       />
+
+      {/* User Competition Modal */}
+      <UserCompetitionModal
+        open={showUserCompModal}
+        onClose={() => {
+          setShowUserCompModal(false);
+          setEditingUserComp(null);
+        }}
+        onSave={handleSaveUserComp}
+        editingCompetition={editingUserComp}
+      />
+
+      {/* Delete User Competition Confirmation Modal */}
+      {deleteUserCompConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-bgSurfaceSoft p-5">
+            <h3 className="mb-2 text-center text-lg font-semibold text-accentDanger">
+              Smazat soutěž?
+            </h3>
+            <p className="mb-4 text-center text-sm text-slate-400">
+              {deleteUserCompConfirm.name}
+            </p>
+            <p className="mb-4 text-center text-xs text-slate-500">
+              Tato akce odstraní soutěž z vašeho seznamu.
+              Zápasy a statistiky zůstanou zachovány.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteUserCompConfirm(null)}
+                className="flex-1 rounded-xl bg-slate-800 py-2.5 text-sm text-slate-300"
+              >
+                Zrušit
+              </button>
+              <button
+                onClick={confirmDeleteUserComp}
+                className="flex-1 rounded-xl bg-accentDanger py-2.5 text-sm font-semibold text-white"
+              >
+                Smazat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

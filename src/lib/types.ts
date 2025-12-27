@@ -128,6 +128,7 @@ export interface Competition {
   seasonId: string;
   externalId?: string; // competitionId ze svazu
   source?: "ceskyhokej" | "manual";
+  standingsUrl?: string; // External URL to standings on ceskyhokej.cz
   createdAt?: string;
   updatedAt?: string;
 }

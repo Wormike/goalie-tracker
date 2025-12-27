@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ClientProviders } from "@/components/ClientProviders";
 
 export const metadata: Metadata = {
   title: "Goalie Tracker",
@@ -45,9 +46,11 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body className="min-h-screen bg-bgMain text-slate-50">
-        <div className="mx-auto flex min-h-screen max-w-md flex-col">
-        {children}
-        </div>
+        <ClientProviders>
+          <div className="mx-auto flex min-h-screen max-w-md flex-col">
+            {children}
+          </div>
+        </ClientProviders>
       </body>
     </html>
   );

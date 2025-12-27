@@ -35,3 +35,6 @@ export function ActionBar({ onSave, onGoal, onMiss }: ActionBarProps) {
 
 
 
+
+
+

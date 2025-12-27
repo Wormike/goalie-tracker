@@ -67,43 +67,105 @@ async function fetchStandingsFromLitomerice(categoryCode: CategoryCode, season: 
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // Pick the first meaningful table on the page
-    const table = $("table").first();
+    // Najdi tabulku s hlavičkou obsahující "Tým" a "Z" – na hclitomerice.cz
+    // může být více tabulek (přehledy, rozpisy apod.).
+    let table = $("table")
+      .filter((_, el) => {
+        const headerCells = $(el).find("thead tr").first().find("th");
+        const headerTexts = headerCells
+          .map((_, c) => $(c).text().trim().toLowerCase())
+          .get();
+        return (
+          headerTexts.length > 0 &&
+          headerTexts.some((t) => t.includes("tým")) &&
+          headerTexts.some((t) => t.startsWith("z"))
+        );
+      })
+      .first();
+
+    if (!table || table.length === 0) {
+      // Fallback: první tabulka na stránce
+      table = $("table").first();
+    }
+
     if (!table || table.length === 0) {
       console.warn("[Standings] No table found on standings page");
       return null;
     }
 
+    // Hlavička: pokud není <thead>, vezmi první řádek tabulky jako header
+    const headRow =
+      table.find("thead tr").first().length > 0
+        ? table.find("thead tr").first()
+        : table.find("tr").first();
+    const headerCells = headRow.find("th,td");
+    const headerTexts = headerCells
+      .map((_, c) => $(c).text().trim().toUpperCase())
+      .get();
+
+    const hasVP = headerTexts.some((t) => t.includes("VP"));
+    const hasPP = headerTexts.some((t) => t.includes("PP"));
+    const hasR = headerTexts.some((t) => t === "R");
+
     const rows: StandingsRow[] = [];
 
-    table.find("tbody tr").each((index, row) => {
-      const cells = $(row).find("td");
-      if (cells.length < 5) return;
+    // Řádky dat – přeskoč header
+    table.find("tr").slice(1).each((index, row) => {
+      const cells = $(row).find("th,td");
+      if (cells.length < 6) return;
 
-      // Slovanusti standings tables typically use:
-      // Poř., Tým, Z, V, VP, R, PP, P, Skóre, B
-      const getText = (i: number) =>
-        $(cells[i] || {}).text().trim().replace(/\s+/g, " ");
+      const cellTexts = cells
+        .map((_, c) => $(c).text().trim().replace(/\s+/g, " "))
+        .get();
 
-      const rawPosition = getText(0);
-      const position = parseInt(rawPosition.replace(".", ""), 10) || index + 1;
-
-      const teamName = getText(1);
+      const position =
+        parseInt(cellTexts[0].replace(".", ""), 10) || index + 1;
+      const teamName = cellTexts[1] || "";
       if (!teamName) return;
 
-      const gamesPlayed = parseInt(getText(2), 10) || 0;
-      const wins = parseInt(getText(3), 10) || 0;
-      const winsOT = parseInt(getText(4), 10) || 0;
-      const draws = parseInt(getText(5), 10) || 0;
-      const lossesOT = parseInt(getText(6), 10) || 0;
-      const losses = parseInt(getText(7), 10) || 0;
+      const gamesPlayed = parseInt(cellTexts[2], 10) || 0;
 
-      const scoreText = getText(8);
-      const goalsMatch = scoreText.match(/(\d+)\s*[:\-]\s*(\d+)/);
-      const goalsFor = goalsMatch ? parseInt(goalsMatch[1], 10) : 0;
-      const goalsAgainst = goalsMatch ? parseInt(goalsMatch[2], 10) : 0;
+      let wins = 0;
+      let winsOT = 0;
+      let draws = 0;
+      let lossesOT = 0;
+      let losses = 0;
+      let goalsFor = 0;
+      let goalsAgainst = 0;
+      let points = 0;
 
-      const points = parseInt(getText(9), 10) || 0;
+      if (hasVP && hasPP && cellTexts.length >= 11) {
+        // Formát Litoměřice:
+        // P., TÝM, Z, V, VP, R, PP, P, VB, IB, B, RB
+        wins = parseInt(cellTexts[3], 10) || 0;
+        winsOT = parseInt(cellTexts[4], 10) || 0;
+        draws = parseInt(cellTexts[5], 10) || 0;
+        lossesOT = parseInt(cellTexts[6], 10) || 0;
+        losses = parseInt(cellTexts[7], 10) || 0;
+        goalsFor = parseInt(cellTexts[8], 10) || 0;
+        goalsAgainst = parseInt(cellTexts[9], 10) || 0;
+        points = parseInt(cellTexts[10], 10) || 0;
+      } else if (hasR && cellTexts.length >= 8) {
+        // Poř., Tým, Z, V, R, P, Skóre, B
+        wins = parseInt(cellTexts[3], 10) || 0;
+        draws = parseInt(cellTexts[4], 10) || 0;
+        losses = parseInt(cellTexts[5], 10) || 0;
+        const scoreText = cellTexts[6] || "";
+        const goalsMatch = scoreText.match(/(\d+)\s*[:\-]\s*(\d+)/);
+        goalsFor = goalsMatch ? parseInt(goalsMatch[1], 10) : 0;
+        goalsAgainst = goalsMatch ? parseInt(goalsMatch[2], 10) : 0;
+        points = parseInt(cellTexts[7], 10) || 0;
+      } else {
+        // Fallback: vezmi první číslo jako V, poslední jako B a najdi Skóre podle ":"
+        wins = parseInt(cellTexts[3], 10) || 0;
+        points = parseInt(cellTexts[cellTexts.length - 1], 10) || 0;
+        const scoreText =
+          cellTexts.find((txt) => txt.includes(":")) || "";
+        const goalsMatch = scoreText.match(/(\d+)\s*[:\-]\s*(\d+)/);
+        goalsFor = goalsMatch ? parseInt(goalsMatch[1], 10) : 0;
+        goalsAgainst = goalsMatch ? parseInt(goalsMatch[2], 10) : 0;
+        // Zbytek sloupců necháme jako 0
+      }
 
       const isOurTeam = isSlovanUsti(teamName);
 
@@ -125,7 +187,24 @@ async function fetchStandingsFromLitomerice(categoryCode: CategoryCode, season: 
     });
 
     if (rows.length === 0) {
-      console.warn("[Standings] No rows parsed from standings table");
+      console.warn("[Standings] No rows parsed from standings table for", url);
+      // Ulož HTML pro ladění
+      try {
+        const fs = await import("fs");
+        const path = await import("path");
+        const dataDir = path.join(process.cwd(), "data");
+        if (!fs.existsSync(dataDir)) {
+          fs.mkdirSync(dataDir, { recursive: true });
+        }
+        const debugPath = path.join(
+          dataDir,
+          `debug-standings-${categoryCode}.html`
+        );
+        fs.writeFileSync(debugPath, html, "utf8");
+        console.warn("[Standings] Saved debug HTML to", debugPath);
+      } catch (e) {
+        console.warn("[Standings] Failed to save debug HTML:", e);
+      }
       return null;
     }
 
@@ -160,10 +239,16 @@ export async function GET(request: NextRequest) {
       const standings = await fetchStandingsFromLitomerice(competitionId, season);
 
       if (!standings) {
-        return NextResponse.json(
-          { error: "Standings not found", competitionId, season },
-          { status: 404 }
-        );
+        // Nevracej 404, aby v UI nestrašil „Failed to load resource“.
+        // Místo toho vrať success:false a prázdná data.
+        return NextResponse.json({
+          success: false,
+          standings: null,
+          competitions: CATEGORY_CONFIG,
+          competitionId,
+          season,
+          elapsed: Date.now() - start,
+        });
       }
 
       return NextResponse.json({
@@ -206,10 +291,14 @@ export async function POST(request: NextRequest) {
       const standings = await fetchStandingsFromLitomerice(competitionId, season);
 
       if (!standings) {
-        return NextResponse.json(
-          { error: "Standings not found", competitionId, season },
-          { status: 404 }
-        );
+        return NextResponse.json({
+          success: false,
+          standings: null,
+          competitions: CATEGORY_CONFIG,
+          competitionId,
+          season,
+          elapsed: Date.now() - start,
+        });
       }
 
       return NextResponse.json({
