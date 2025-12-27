@@ -197,10 +197,10 @@ export default function HomePage() {
         // Reload matches (prefer Supabase if configured)
         await loadMatches();
 
-        // Also save standings if available
-        if (data.standings && data.standings.length > 0) {
-          data.standings.forEach((s: CompetitionStandings) => saveStandings(s));
-        }
+//         // Also save standings if available
+//         if (data.standings && data.standings.length > 0) {
+//           data.standings.forEach((s: CompetitionStandings) => saveStandings(s));
+//         }
 
         setImportResult({
           total: data.matches.length,
