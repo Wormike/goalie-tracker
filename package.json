@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
-    "@types/uuid": "^10.0.0",
     "cheerio": "^1.1.2",
     "next": "16.0.7",
     "puppeteer": "^24.32.0",
@@ -26,6 +25,7 @@
     "@types/node": "^20.19.25",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
     "tailwindcss": "^4",
