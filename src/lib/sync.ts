@@ -182,11 +182,41 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     const goalieIdMap = new Map<string, string>(); // old ID -> new UUID
 
     if (goalies.length > 0) {
+      // First, fetch all existing goalies from Supabase to match by name
+      const { data: existingGoalies } = await supabase
+        .from("goalies")
+        .select("id, first_name, last_name");
+      
+      // Create a map of (first_name, last_name) -> id for existing goalies
+      const existingByName = new Map<string, string>();
+      if (existingGoalies) {
+        existingGoalies.forEach((g) => {
+          const key = `${g.first_name?.toLowerCase().trim() || ""}|${g.last_name?.toLowerCase().trim() || ""}`;
+          existingByName.set(key, g.id);
+        });
+      }
+
       const goaliesPayload = goalies.map((g) => {
-        const newId = ensureUuid(g.id);
-        goalieIdMap.set(g.id, newId);
+        // Try to find existing goalie by name first
+        const nameKey = `${(g.firstName || "").toLowerCase().trim()}|${(g.lastName || "").toLowerCase().trim()}`;
+        const existingId = existingByName.get(nameKey);
+        
+        // Use existing ID if found, otherwise generate new UUID only if current ID is not a valid UUID
+        let finalId: string;
+        if (existingId) {
+          // Found existing goalie by name - use that ID
+          finalId = existingId;
+        } else if (isValidUuid(g.id)) {
+          // Current ID is valid UUID - use it
+          finalId = g.id;
+        } else {
+          // Generate new UUID only if ID is not valid and no existing goalie found
+          finalId = uuidv4();
+        }
+        
+        goalieIdMap.set(g.id, finalId);
         return {
-          id: newId,
+          id: finalId,
           first_name: g.firstName,
           last_name: g.lastName,
           birth_year: g.birthYear || null,

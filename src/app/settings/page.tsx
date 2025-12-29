@@ -847,7 +847,7 @@ export default function SettingsPage() {
           <div className="space-y-2 text-sm text-slate-400">
             <div className="flex justify-between">
               <span>Verze</span>
-              <span className="text-slate-200">1.0.0</span>
+              <span className="text-slate-200">1.5.0</span>
             </div>
             <div className="flex justify-between">
               <span>Data uložena</span>
