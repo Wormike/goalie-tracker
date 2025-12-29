@@ -181,7 +181,7 @@ export default function NewMatchPage() {
       home: form.homeTeamName,
       away: form.away,
       homeTeamId: form.homeTeamId || undefined,
-      category: payload.competition || "Přátelský zápas",
+      category: form.category || "Přátelský zápas",
       competitionId: form.competitionId || undefined,
       datetime: payload.datetime,
       venue: payload.venue,
