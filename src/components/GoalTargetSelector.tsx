@@ -22,7 +22,9 @@ const ZONES: { zone: ShotTargetZone; labelShort: string; gridArea: string; label
   { zone: "low_glove", labelFull: "Dolní lapačka", labelShort: "D-L", gridArea: "2 / 1" },
   { zone: "five_hole", labelFull: "Mezi betony", labelShort: "5H", gridArea: "2 / 2" },
   { zone: "low_blocker", labelFull: "Dolní vyrážečka", labelShort: "D-V", gridArea: "2 / 3" },
+  { zone: "bottom_left", labelFull: "Dolní roh (tyč L)", labelShort: "D-R-L", gridArea: "3 / 1" },
   { zone: "low_center", labelFull: "Spodní střed", labelShort: "D-S", gridArea: "3 / 2" },
+  { zone: "bottom_right", labelFull: "Dolní roh (tyč R)", labelShort: "D-R-R", gridArea: "3 / 3" },
 ];
 
 export function GoalTargetSelector({
@@ -33,6 +35,7 @@ export function GoalTargetSelector({
   showLabels = true,
 }: GoalTargetSelectorProps) {
   // Mirror zones if goalie is left-handed (catches with right hand)
+  // Swap left and right columns (1 <-> 3)
   const zones = catchHand === "R" 
     ? ZONES.map(z => ({
         ...z,
@@ -41,6 +44,14 @@ export function GoalTargetSelector({
           : z.gridArea.includes("/ 3")
           ? z.gridArea.replace("/ 3", "/ 1")
           : z.gridArea,
+        // Also swap zone names for left/right specific zones
+        zone: z.zone === "bottom_left" ? "bottom_right" as ShotTargetZone
+          : z.zone === "bottom_right" ? "bottom_left" as ShotTargetZone
+          : z.zone === "low_glove" ? "low_blocker" as ShotTargetZone
+          : z.zone === "low_blocker" ? "low_glove" as ShotTargetZone
+          : z.zone === "high_glove" ? "high_blocker" as ShotTargetZone
+          : z.zone === "high_blocker" ? "high_glove" as ShotTargetZone
+          : z.zone,
       }))
     : ZONES;
 
@@ -72,7 +83,7 @@ export function GoalTargetSelector({
           className="relative grid gap-1"
           style={{
             gridTemplateColumns: "1fr 1fr 1fr",
-            gridTemplateRows: "1fr 1fr 0.5fr",
+            gridTemplateRows: "1fr 1fr 1fr",
             aspectRatio: "1.5/1",
             minHeight: "120px",
           }}

@@ -81,6 +81,8 @@ export type ShotTargetZone =
   | "five_hole" // mezi betony
   | "high_center" // horní střed
   | "low_center" // spodní střed
+  | "bottom_left" // dolní roh (tyč vlevo)
+  | "bottom_right" // dolní roh (tyč vpravo)
   | "off_target"; // mimo branku
 
 // ─────────────────────────────────────────────────────────────────────────────
