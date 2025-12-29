@@ -254,6 +254,7 @@ export interface CreateMatchPayload {
   source?: string;
   external_id?: string;
   external_url?: string;
+  completed?: boolean;
 }
 
 export async function createMatch(payload: CreateMatchPayload): Promise<Match | null> {
