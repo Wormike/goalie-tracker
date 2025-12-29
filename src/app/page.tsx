@@ -223,12 +223,25 @@ export default function HomePage() {
   });
 
   // Split by completed status AND date
-  const upcomingMatches = sortedMatches.filter(
-    (m) => !m.completed || new Date(m.datetime).getTime() >= Date.now() - 3600000 * 3
-  );
-  const pastMatches = sortedMatches.filter(
-    (m) => m.completed && new Date(m.datetime).getTime() < Date.now() - 3600000 * 3
-  );
+  // Upcoming: not completed OR completed but datetime is in future (or less than 3 hours ago)
+  // Past: completed AND datetime is more than 3 hours ago
+  const now = Date.now();
+  const threeHoursAgo = now - 3600000 * 3;
+  
+  const upcomingMatches = sortedMatches.filter((m) => {
+    const matchTime = new Date(m.datetime).getTime();
+    // Not completed -> upcoming
+    if (!m.completed) return true;
+    // Completed but datetime is in future or very recent (less than 3 hours ago) -> still show in upcoming
+    if (m.completed && matchTime >= threeHoursAgo) return true;
+    return false;
+  });
+  
+  const pastMatches = sortedMatches.filter((m) => {
+    const matchTime = new Date(m.datetime).getTime();
+    // Completed and datetime is more than 3 hours ago -> past
+    return m.completed && matchTime < threeHoursAgo;
+  });
 
   const matchTypeLabels: Record<string, string> = {
     friendly: "Přátelský",

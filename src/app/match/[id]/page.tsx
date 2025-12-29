@@ -912,7 +912,96 @@ export default function MatchPage() {
                 onGoal={() => addEventQuick("goal")}
                 onMiss={() => addEventQuick("miss")}
               />
+              
+              {/* Close match button */}
+              <div className="border-t border-borderSoft bg-bgSurfaceSoft/50 px-4 py-2">
+                <button
+                  onClick={async () => {
+                    if (!match) return;
+                    if (!confirm("Opravdu ukončit tento zápas? Zápas bude přesunut do odehraných s dnešním datumem.")) return;
+                    
+                    const now = new Date();
+                    const todayISO = now.toISOString();
+                    const originalDatetime = match.datetime; // Save original datetime
+                    
+                    // Save original datetime to a metadata field (we'll use a custom field in match)
+                    const updatedMatch: Match = {
+                      ...match,
+                      status: "completed" as MatchStatus,
+                      completed: true,
+                      datetime: todayISO, // Move to today
+                      // Store original datetime in a way we can retrieve it
+                      // We'll use a custom approach: store in match metadata or use a separate storage
+                    };
+                    
+                    if (dataSource === "supabase") {
+                      const updated = await updateMatchSupabase(match.id, {
+                        status: "completed",
+                        datetime: todayISO,
+                      });
+                      if (updated) {
+                        setMatch(updated);
+                      }
+                    } else {
+                      // Store original datetime in localStorage separately for reopening
+                      const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+                      matchMetadata[match.id] = { originalDatetime };
+                      localStorage.setItem('match-metadata', JSON.stringify(matchMetadata));
+                      
+                      saveMatchLocal(updatedMatch);
+                      setMatch(updatedMatch);
+                    }
+                    
+                    // Navigate back to home
+                    router.push('/');
+                  }}
+                  className="w-full rounded-lg bg-accentDanger/20 py-2 text-xs font-medium text-accentDanger"
+                >
+                  ✓ Ukončit zápas
+                </button>
+              </div>
             </>
+          )}
+          
+          {isMatchClosed && (
+            <div className="border-t border-borderSoft bg-bgSurfaceSoft/50 px-4 py-2">
+              <button
+                onClick={async () => {
+                  if (!match) return;
+                  
+                  // Restore original datetime if available
+                  const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+                  const metadata = matchMetadata[match.id];
+                  const originalDatetime = metadata?.originalDatetime || match.datetime;
+                  
+                  const updatedMatch: Match = {
+                    ...match,
+                    status: "in_progress" as MatchStatus,
+                    completed: false,
+                    datetime: originalDatetime, // Restore original datetime
+                  };
+                  
+                  if (dataSource === "supabase") {
+                    const updated = await updateMatchSupabase(match.id, {
+                      status: "in_progress",
+                      datetime: originalDatetime,
+                    });
+                    if (updated) {
+                      setMatch(updated);
+                    }
+                  } else {
+                    saveMatchLocal(updatedMatch);
+                    setMatch(updatedMatch);
+                  }
+                  
+                  // Navigate back to home
+                  router.push('/');
+                }}
+                className="w-full rounded-lg bg-accentSuccess/20 py-2 text-xs font-medium text-accentSuccess"
+              >
+                ↻ Znovuotevřít zápas
+              </button>
+            </div>
           )}
         </>
       )}
