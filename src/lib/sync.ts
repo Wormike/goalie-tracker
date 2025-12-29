@@ -135,12 +135,61 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     // 1. Upload Teams
     const teams = storage.getTeams();
     if (teams.length > 0) {
-      const teamsPayload = teams.map((t) => ({
-        id: ensureUuid(t.id),
-        name: t.name,
-        short_name: t.shortName || null,
-        external_id: t.externalId || null, // Unified external_id
-      }));
+      // First, fetch all existing teams from Supabase to match by name or external_id
+      const { data: existingTeams } = await supabase
+        .from("teams")
+        .select("id, name, external_id");
+      
+      // Create maps for existing teams: by name and by external_id
+      const existingByName = new Map<string, string>();
+      const existingByExternalId = new Map<string, string>();
+      if (existingTeams) {
+        existingTeams.forEach((t) => {
+          // Map by name (case-insensitive)
+          const nameKey = (t.name || "").toLowerCase().trim();
+          if (nameKey) {
+            existingByName.set(nameKey, t.id);
+          }
+          // Map by external_id if exists
+          if (t.external_id) {
+            existingByExternalId.set(t.external_id, t.id);
+          }
+        });
+      }
+
+      const teamsPayload = teams.map((t) => {
+        // Try to find existing team by external_id first (most reliable)
+        let finalId: string | undefined;
+        if (t.externalId) {
+          finalId = existingByExternalId.get(t.externalId);
+        }
+        
+        // If not found by external_id, try by name
+        if (!finalId) {
+          const nameKey = (t.name || "").toLowerCase().trim();
+          if (nameKey) {
+            finalId = existingByName.get(nameKey);
+          }
+        }
+        
+        // Use existing ID if found, otherwise check if current ID is valid UUID
+        if (!finalId) {
+          if (isValidUuid(t.id)) {
+            // Current ID is valid UUID - use it
+            finalId = t.id;
+          } else {
+            // Generate new UUID only if ID is not valid and no existing team found
+            finalId = uuidv4();
+          }
+        }
+        
+        return {
+          id: finalId,
+          name: t.name,
+          short_name: t.shortName || null,
+          external_id: t.externalId || null, // Unified external_id
+        };
+      });
 
       const { error: teamsError } = await supabase
         .from("teams")
@@ -182,36 +231,48 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     const goalieIdMap = new Map<string, string>(); // old ID -> new UUID
 
     if (goalies.length > 0) {
-      // First, fetch all existing goalies from Supabase to match by name
+      // First, fetch all existing goalies from Supabase to match by ID and name
       const { data: existingGoalies } = await supabase
         .from("goalies")
         .select("id, first_name, last_name");
       
-      // Create a map of (first_name, last_name) -> id for existing goalies
+      // Create maps for existing goalies: by ID and by name
+      const existingById = new Set<string>();
       const existingByName = new Map<string, string>();
       if (existingGoalies) {
         existingGoalies.forEach((g) => {
-          const key = `${g.first_name?.toLowerCase().trim() || ""}|${g.last_name?.toLowerCase().trim() || ""}`;
-          existingByName.set(key, g.id);
+          // Map by ID (for direct lookup)
+          existingById.add(g.id);
+          // Map by name (first_name + last_name) -> id
+          const nameKey = `${(g.first_name || "").toLowerCase().trim()}|${(g.last_name || "").toLowerCase().trim()}`;
+          if (nameKey !== "|") { // Only add if name is not empty
+            existingByName.set(nameKey, g.id);
+          }
         });
       }
 
       const goaliesPayload = goalies.map((g) => {
-        // Try to find existing goalie by name first
-        const nameKey = `${(g.firstName || "").toLowerCase().trim()}|${(g.lastName || "").toLowerCase().trim()}`;
-        const existingId = existingByName.get(nameKey);
-        
-        // Use existing ID if found, otherwise generate new UUID only if current ID is not a valid UUID
-        let finalId: string;
-        if (existingId) {
-          // Found existing goalie by name - use that ID
-          finalId = existingId;
-        } else if (isValidUuid(g.id)) {
-          // Current ID is valid UUID - use it
+        // Priority 1: Check if current ID is valid UUID and exists in Supabase
+        let finalId: string | undefined;
+        if (isValidUuid(g.id) && existingById.has(g.id)) {
+          // Current ID is valid UUID and exists in Supabase - use it
           finalId = g.id;
         } else {
-          // Generate new UUID only if ID is not valid and no existing goalie found
-          finalId = uuidv4();
+          // Priority 2: Try to find existing goalie by name
+          const nameKey = `${(g.firstName || "").toLowerCase().trim()}|${(g.lastName || "").toLowerCase().trim()}`;
+          if (nameKey !== "|") {
+            finalId = existingByName.get(nameKey);
+          }
+          
+          // Priority 3: Use current ID if it's valid UUID (even if not in Supabase yet)
+          if (!finalId && isValidUuid(g.id)) {
+            finalId = g.id;
+          }
+          
+          // Priority 4: Generate new UUID only if no match found
+          if (!finalId) {
+            finalId = uuidv4();
+          }
         }
         
         goalieIdMap.set(g.id, finalId);
@@ -246,9 +307,51 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     const matchIdMap = new Map<string, string>(); // old ID -> new UUID
 
     if (matches.length > 0) {
+      // First, fetch all existing matches from Supabase to match by external_id or key
+      const { data: existingMatches } = await supabase
+        .from("matches")
+        .select("id, external_id, datetime, home_team_name, away_team_name");
+      
+      // Create maps for existing matches: by external_id and by key (datetime + teams)
+      const existingByExternalId = new Map<string, string>();
+      const existingByKey = new Map<string, string>();
+      if (existingMatches) {
+        existingMatches.forEach((m) => {
+          // Map by external_id (most reliable for imported matches)
+          if (m.external_id) {
+            existingByExternalId.set(m.external_id, m.id);
+          }
+          // Map by key: datetime + home + away
+          const key = `${m.datetime}|${(m.home_team_name || "").toLowerCase().trim()}|${(m.away_team_name || "").toLowerCase().trim()}`;
+          existingByKey.set(key, m.id);
+        });
+      }
+
       const matchesPayload = matches.map((m) => {
-        const newId = ensureUuid(m.id);
-        matchIdMap.set(m.id, newId);
+        // Try to find existing match by external_id first (most reliable)
+        let finalId: string | undefined;
+        if (m.externalId) {
+          finalId = existingByExternalId.get(m.externalId);
+        }
+        
+        // If not found by external_id, try by key (datetime + teams)
+        if (!finalId) {
+          const key = `${m.datetime}|${(m.homeTeamName || m.home || "").toLowerCase().trim()}|${(m.awayTeamName || m.away || "").toLowerCase().trim()}`;
+          finalId = existingByKey.get(key);
+        }
+        
+        // Use existing ID if found, otherwise check if current ID is valid UUID
+        if (!finalId) {
+          if (isValidUuid(m.id)) {
+            // Current ID is valid UUID - use it
+            finalId = m.id;
+          } else {
+            // Generate new UUID only if ID is not valid and no existing match found
+            finalId = uuidv4();
+          }
+        }
+        
+        matchIdMap.set(m.id, finalId);
         
         // Get mapped goalie ID
         const goalieId = m.goalieId ? goalieIdMap.get(m.goalieId) || m.goalieId : null;
@@ -262,7 +365,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         }
         
         return {
-          id: newId,
+          id: finalId,
           home_team_id: isValidUuid(m.homeTeamId || "") ? m.homeTeamId : null,
           home_team_name: m.homeTeamName || m.home || null,
           away_team_id: isValidUuid(m.awayTeamId || "") ? m.awayTeamId : null,
