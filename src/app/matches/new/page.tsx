@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import type { Goalie, Match, MatchType, Season, Team, Competition } from "@/lib/types";
+import type { Goalie, Match, MatchType, MatchStatus, Season, Team, Competition } from "@/lib/types";
 import {
   getGoalies,
   getSeasons,
@@ -158,11 +158,11 @@ export default function NewMatchPage() {
       home_team_id: form.homeTeamId || undefined,
       away_team_name: form.away,
       datetime: new Date(form.datetime).toISOString(),
-      competition: form.category || "Přátelský zápas",
-      season: form.seasonId,
+      competition_id: form.competitionId || undefined,
+      season_id: form.seasonId,
       venue: form.venue || undefined,
-      type: form.matchType,
-      status: "in_progress",
+      match_type: form.matchType,
+      status: "in_progress" as MatchStatus,
       goalie_id: form.goalieId || undefined,
     };
 
