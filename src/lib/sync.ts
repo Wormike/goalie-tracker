@@ -139,7 +139,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         id: ensureUuid(t.id),
         name: t.name,
         short_name: t.shortName || null,
-        external_id: t.externalId || t.clubExternalId || t.teamExternalId || null, // Unified external_id
+        external_id: t.externalId || null, // Unified external_id
       }));
 
       const { error: teamsError } = await supabase
