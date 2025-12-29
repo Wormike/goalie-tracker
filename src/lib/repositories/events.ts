@@ -196,9 +196,12 @@ export async function createEvent(payload: CreateEventPayload): Promise<GoalieEv
 
   try {
     // Map situation: legacy "powerplay"/"shorthanded" -> "pp"/"sh"
-    let situation = payload.situation || "even";
-    if (situation === "powerplay") situation = "pp" as any;
-    if (situation === "shorthanded") situation = "sh" as any;
+   const rawSituation = payload.situation || "even";
+const situationMap: Record<string, string> = {
+  "powerplay": "pp",
+  "shorthanded": "sh",
+};
+const situation = situationMap[rawSituation] || rawSituation;
 
     const { data, error } = await supabase
       .from("goalie_events")
