@@ -11,6 +11,7 @@ import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import * as storage from "./storage";
 import type { Goalie, Match, GoalieEvent, Competition, Season, Team } from "./types";
 import { v4 as uuidv4 } from "uuid";
+import { normalizeMatchStatus } from "./utils/matchStatus";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -222,21 +223,12 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         // Get mapped goalie ID
         const goalieId = m.goalieId ? goalieIdMap.get(m.goalieId) || m.goalieId : null;
         
-        // Map status: legacy "open"/"closed" -> new "scheduled"/"completed"/"in_progress"
-        // Legacy: "open" | "closed"
-        // New: "scheduled" | "in_progress" | "completed" | "cancelled"
-        let status: "scheduled" | "in_progress" | "completed" | "cancelled" = "in_progress";
-        if (m.status === "completed" || m.completed || m.status === "closed") {
+        // Normalizuj status před uploadem do Supabase
+        let status: "scheduled" | "in_progress" | "completed" | "cancelled";
+        if (m.completed) {
           status = "completed";
-        } else if (m.status === "cancelled") {
-          status = "cancelled";
-        } else if (m.status === "in_progress") {
-          status = "in_progress";
-        } else if (m.status === "scheduled") {
-          status = "scheduled";
-        } else if (m.status === "open") {
-          // Legacy "open" -> assume match is in progress
-          status = "in_progress";
+        } else {
+          status = normalizeMatchStatus(m.status) as "scheduled" | "in_progress" | "completed" | "cancelled";
         }
         
         return {
@@ -406,18 +398,10 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
       result.errors.push(`Matches: ${matchesError.message}`);
     } else if (matchesData) {
       matchesData.forEach((m) => {
-        // Map status: new schema -> legacy (for backward compatibility)
-        // New: "scheduled" | "in_progress" | "completed" | "cancelled"
-        // Legacy: "open" | "closed"
-        const isCompleted = m.status === "completed" || m.status === "cancelled";
-        let status: MatchStatus;
-        if (m.status === "completed" || m.status === "cancelled") {
-          status = "closed";
-        } else if (m.status === "scheduled") {
-          status = "open"; // Treat scheduled as open for legacy compatibility
-        } else {
-          status = "open"; // "in_progress" and any other -> "open"
-        }
+        // Status ze Supabase už je normalizovaný (nové hodnoty)
+        // Normalizuj pro jistotu
+        const status = normalizeMatchStatus(m.status) as MatchStatus;
+        const isCompleted = status === "completed" || status === "cancelled";
         
         const match: Match = {
           id: m.id,
@@ -433,7 +417,7 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           seasonId: m.season_id || m.season || "",
           datetime: m.datetime,
           venue: m.venue || undefined,
-          status: status as MatchStatus,
+          status: status,
           completed: isCompleted,
           homeScore: m.home_score ?? undefined,
           awayScore: m.away_score ?? undefined,

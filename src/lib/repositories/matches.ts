@@ -4,6 +4,7 @@
 
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { Match, MatchType, MatchStatus } from "@/lib/types";
+import { normalizeMatchStatus } from "@/lib/utils/matchStatus";
 
 export function isUuid(value?: string | null): boolean {
   if (!value) return false;
@@ -61,18 +62,9 @@ export interface DbMatch {
  * Convert database match to app Match type
  */
 export function dbMatchToAppMatch(db: DbMatch): Match {
-  // Map status: new schema -> legacy (for backward compatibility)
-  // New schema: "scheduled" | "in_progress" | "completed" | "cancelled"
-  // Legacy: "open" | "closed"
-  const isCompleted = db.status === "completed" || db.status === "cancelled";
-  let status: MatchStatus;
-  if (db.status === "completed" || db.status === "cancelled") {
-    status = "closed";
-  } else if (db.status === "scheduled") {
-    status = "open"; // Treat scheduled as open for legacy compatibility
-  } else {
-    status = "open"; // "in_progress" and any other -> "open"
-  }
+  // Normalizuj status - DB už používá nové hodnoty, jen pro jistotu
+  const status = normalizeMatchStatus(db.status) as MatchStatus;
+  const isCompleted = status === "completed" || status === "cancelled";
   
   return {
     id: db.id,
@@ -139,24 +131,12 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
   if (match.venue !== undefined) payload.venue = match.venue || null;
   if (match.matchType !== undefined) payload.match_type = match.matchType;
   
-  // Map status: legacy -> new schema
-  // Legacy: "open" | "closed"
-  // New schema: "scheduled" | "in_progress" | "completed" | "cancelled"
+  // Normalizuj status před uložením do DB
   if (match.status !== undefined || match.completed !== undefined) {
-    if (match.status === "completed" || match.completed || match.status === "closed") {
+    if (match.completed) {
       payload.status = "completed";
-    } else if (match.status === "cancelled") {
-      payload.status = "cancelled";
-    } else if (match.status === "in_progress") {
-      payload.status = "in_progress";
-    } else if (match.status === "scheduled") {
-      payload.status = "scheduled";
-    } else if (match.status === "open") {
-      // Legacy "open" -> assume match is in progress
-      payload.status = "in_progress";
     } else {
-      // Default: if completed flag is set, use completed, otherwise in_progress
-      payload.status = match.completed ? "completed" : "in_progress";
+      payload.status = normalizeMatchStatus(match.status) as "scheduled" | "in_progress" | "completed" | "cancelled";
     }
   }
   
@@ -264,7 +244,7 @@ export interface CreateMatchPayload {
   season_id?: string;
   venue?: string;
   match_type?: "friendly" | "league" | "tournament" | "playoff";
-  status?: "scheduled" | "in_progress" | "completed" | "cancelled";
+  status?: MatchStatus; // Použij nový typ
   goalie_id?: string;
   home_score?: number;
   away_score?: number;
@@ -293,7 +273,7 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       season_id: isUuid(payload.season_id) ? payload.season_id : null,
       venue: payload.venue || null,
       match_type: payload.match_type || "friendly",
-      status: payload.status || "scheduled",
+      status: normalizeMatchStatus(payload.status) as "scheduled" | "in_progress" | "completed" | "cancelled",
       goalie_id: isUuid(payload.goalie_id) ? payload.goalie_id : null,
       home_score: payload.home_score ?? null,
       away_score: payload.away_score ?? null,

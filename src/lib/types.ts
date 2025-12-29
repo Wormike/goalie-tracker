@@ -26,12 +26,18 @@ export type InputSource = "live" | "manual" | "import";
 // NEW: Event status for tracking edits/deletions
 export type EventStatus = "confirmed" | "edited" | "deleted";
 
-// Match status
-// Legacy values: "open" | "closed" (for backward compatibility)
-// New schema values: "scheduled" | "in_progress" | "completed" | "cancelled"
+// Match status - unified new system
 export type MatchStatus = 
-  | "open" | "closed" // Legacy values
-  | "scheduled" | "in_progress" | "completed" | "cancelled"; // New schema values
+  | "scheduled"      // Naplánovaný
+  | "in_progress"    // Probíhá
+  | "completed"      // Dokončený
+  | "cancelled";     // Zrušený
+
+// Legacy typ pro zpětnou kompatibilitu při čtení
+export type LegacyMatchStatus = "open" | "closed";
+
+// Helper pro mapování - akceptuje obě varianty
+export type AnyMatchStatus = MatchStatus | LegacyMatchStatus;
 
 export type MatchType = "league" | "friendly" | "tournament" | "cup";
 export type MatchSource = "manual" | "imported" | "ceskyhokej";

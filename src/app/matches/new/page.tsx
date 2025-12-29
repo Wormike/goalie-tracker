@@ -162,7 +162,7 @@ export default function NewMatchPage() {
       season: form.seasonId,
       venue: form.venue || undefined,
       type: form.matchType,
-      status: "in_progress" as const,
+      status: "in_progress",
       goalie_id: form.goalieId || undefined,
     };
 

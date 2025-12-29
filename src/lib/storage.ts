@@ -12,6 +12,7 @@ import type {
   GoalieSeasonStats,
   CompetitionStandings,
 } from "./types";
+import { normalizeMatchStatus } from "./utils/matchStatus";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STORAGE KEYS
@@ -262,7 +263,12 @@ export function getCompetitionByExternalId(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function getMatches(): Match[] {
-  return getItem<Match[]>(STORAGE_KEYS.matches, []);
+  const data = getItem<Match[]>(STORAGE_KEYS.matches, []);
+  // Normalizuj legacy statusy na nové hodnoty
+  return data.map(m => ({
+    ...m,
+    status: normalizeMatchStatus(m.status),
+  }));
 }
 
 export function saveMatch(match: Match): void {
@@ -287,7 +293,13 @@ export function deleteMatch(id: string): void {
 }
 
 export function getMatchById(id: string): Match | undefined {
-  return getMatches().find((m) => m.id === id);
+  const match = getItem<Match[]>(STORAGE_KEYS.matches, []).find((m) => m.id === id);
+  if (!match) return undefined;
+  // Normalizuj legacy status
+  return {
+    ...match,
+    status: normalizeMatchStatus(match.status),
+  };
 }
 
 export function getMatchesByGoalie(goalieId: string): Match[] {
