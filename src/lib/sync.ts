@@ -9,7 +9,7 @@
 
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import * as storage from "./storage";
-import type { Goalie, Match, GoalieEvent, Competition, Season, Team, MatchStatus, MatchType } from "./types";
+import type { Goalie, Match, GoalieEvent, Competition, Season, Team, MatchStatus, MatchType, SituationType } from "./types";
 import { v4 as uuidv4 } from "uuid";
 import { normalizeMatchStatus } from "./utils/matchStatus";
 
