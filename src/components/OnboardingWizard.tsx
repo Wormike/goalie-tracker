@@ -268,13 +268,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             >
               {isSubmitting ? "Vytvářím..." : "Vytvořit soutěž"}
             </button>
-          </form>
+            </form>
+          )}
 
           {/* Footer note */}
           <p className="mt-6 text-center text-xs text-slate-500">
-            {competitions.length > 0 
-              ? "Můžeš přidat další soutěže později v "
-              : "Můžeš přidat další soutěže později v "}
+            Můžeš přidat další soutěže později v{" "}
             <span className="text-slate-400">Nastavení → Správa soutěží</span>
           </p>
         </div>
