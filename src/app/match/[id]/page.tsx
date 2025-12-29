@@ -9,6 +9,7 @@ import { EventModal } from "@/components/EventModal";
 import { EventListModal } from "@/components/EventListModal";
 import { LandscapeTrackingView } from "@/components/LandscapeTrackingView";
 import { useIsMobile } from "@/hooks/useOrientation";
+import { isMatchCompleted } from "@/lib/utils/matchStatus";
 import type {
   GoalieEvent,
   Match,
@@ -160,7 +161,7 @@ export default function MatchPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [match, dataSource, events.length]);
 
-  const isMatchClosed = match?.status === "closed" || match?.status === "completed" || match?.status === "cancelled" || match?.completed;
+const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "cancelled" || match?.completed;
 
   const stats = useMemo(() => {
     const filtered = events.filter(
