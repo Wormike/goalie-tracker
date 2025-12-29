@@ -1,4 +1,5 @@
 /**
+import type { MatchStatus } from "./types";
  * Data Sync - Synchronizace mezi localStorage a Supabase
  * 
  * Umožňuje:
