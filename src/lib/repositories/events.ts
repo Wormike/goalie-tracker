@@ -18,6 +18,17 @@ export interface DbGoalieEvent {
   result: "save" | "goal" | "miss";
   shot_x: number | null;
   shot_y: number | null;
+  shot_zone: string | null;
+  goal_x: number | null;
+  goal_y: number | null;
+  goal_zone: string | null;
+  shot_type: string | null;
+  save_type: string | null;
+  goal_type: string | null;
+  situation: "even" | "pp" | "sh" | "4v4" | "3v3" | null;
+  is_rebound: boolean | null;
+  is_screened: boolean | null;
+  status: "confirmed" | "pending" | "deleted" | null;
   input_source: "live" | "manual" | "import" | null;
   created_at: string;
   updated_at: string;
@@ -39,6 +50,11 @@ export function dbEventToAppEvent(db: DbGoalieEvent): GoalieEvent {
     "OT": "OT",
   };
 
+  // Map situation: "pp"/"sh" -> legacy "powerplay"/"shorthanded" for compatibility
+  let situation = db.situation || "even";
+  if (situation === "pp") situation = "powerplay" as any;
+  if (situation === "sh") situation = "shorthanded" as any;
+
   return {
     id: db.id,
     matchId: db.match_id,
@@ -51,11 +67,26 @@ export function dbEventToAppEvent(db: DbGoalieEvent): GoalieEvent {
       ? {
           x: Number(db.shot_x),
           y: Number(db.shot_y),
-          zone: getZoneFromCoords(Number(db.shot_x), Number(db.shot_y)),
+          zone: (db.shot_zone || getZoneFromCoords(Number(db.shot_x), Number(db.shot_y))) as any,
         }
       : undefined,
+    goalPosition: db.goal_x !== null && db.goal_y !== null
+      ? {
+          x: Number(db.goal_x),
+          y: Number(db.goal_y),
+          zone: (db.goal_zone || "middle_center") as any,
+        }
+      : undefined,
+    shotType: db.shot_type || undefined,
+    saveType: db.save_type as any || undefined,
+    goalType: db.goal_type as any || undefined,
+    situation: situation as any,
+    isRebound: db.is_rebound ?? false,
+    rebound: db.is_rebound ?? false, // Legacy field
+    isScreened: db.is_screened ?? false,
+    screenedView: db.is_screened ?? false, // Legacy field
     inputSource: (db.input_source as InputSource) || "manual",
-    status: "confirmed",
+    status: (db.status as any) || "confirmed",
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   };
@@ -143,6 +174,17 @@ export interface CreateEventPayload {
   result: "save" | "goal" | "miss";
   shot_x?: number;
   shot_y?: number;
+  shot_zone?: string;
+  goal_x?: number;
+  goal_y?: number;
+  goal_zone?: string;
+  shot_type?: string;
+  save_type?: string;
+  goal_type?: string;
+  situation?: "even" | "pp" | "sh" | "4v4" | "3v3";
+  is_rebound?: boolean;
+  is_screened?: boolean;
+  status?: "confirmed" | "pending" | "deleted";
   input_source?: "live" | "manual" | "import";
 }
 
@@ -153,6 +195,11 @@ export async function createEvent(payload: CreateEventPayload): Promise<GoalieEv
   }
 
   try {
+    // Map situation: legacy "powerplay"/"shorthanded" -> "pp"/"sh"
+    let situation = payload.situation || "even";
+    if (situation === "powerplay") situation = "pp" as any;
+    if (situation === "shorthanded") situation = "sh" as any;
+
     const { data, error } = await supabase
       .from("goalie_events")
       .insert({
@@ -163,6 +210,17 @@ export async function createEvent(payload: CreateEventPayload): Promise<GoalieEv
         result: payload.result,
         shot_x: payload.shot_x ?? null,
         shot_y: payload.shot_y ?? null,
+        shot_zone: payload.shot_zone || null,
+        goal_x: payload.goal_x ?? null,
+        goal_y: payload.goal_y ?? null,
+        goal_zone: payload.goal_zone || null,
+        shot_type: payload.shot_type || null,
+        save_type: payload.save_type || null,
+        goal_type: payload.goal_type || null,
+        situation: situation as "even" | "pp" | "sh" | "4v4" | "3v3",
+        is_rebound: payload.is_rebound ?? null,
+        is_screened: payload.is_screened ?? null,
+        status: payload.status || "confirmed",
         input_source: payload.input_source || "manual",
       })
       .select()
@@ -203,6 +261,22 @@ export async function updateEvent(
     if (payload.result !== undefined) updatePayload.result = payload.result;
     if (payload.shot_x !== undefined) updatePayload.shot_x = payload.shot_x;
     if (payload.shot_y !== undefined) updatePayload.shot_y = payload.shot_y;
+    if (payload.shot_zone !== undefined) updatePayload.shot_zone = payload.shot_zone || null;
+    if (payload.goal_x !== undefined) updatePayload.goal_x = payload.goal_x;
+    if (payload.goal_y !== undefined) updatePayload.goal_y = payload.goal_y;
+    if (payload.goal_zone !== undefined) updatePayload.goal_zone = payload.goal_zone || null;
+    if (payload.shot_type !== undefined) updatePayload.shot_type = payload.shot_type || null;
+    if (payload.save_type !== undefined) updatePayload.save_type = payload.save_type || null;
+    if (payload.goal_type !== undefined) updatePayload.goal_type = payload.goal_type || null;
+    if (payload.situation !== undefined) {
+      let situation = payload.situation;
+      if (situation === "powerplay") situation = "pp" as any;
+      if (situation === "shorthanded") situation = "sh" as any;
+      updatePayload.situation = situation as "even" | "pp" | "sh" | "4v4" | "3v3";
+    }
+    if (payload.is_rebound !== undefined) updatePayload.is_rebound = payload.is_rebound ?? null;
+    if (payload.is_screened !== undefined) updatePayload.is_screened = payload.is_screened ?? null;
+    if (payload.status !== undefined) updatePayload.status = payload.status;
     if (payload.input_source !== undefined) updatePayload.input_source = payload.input_source;
 
     const { data, error } = await supabase

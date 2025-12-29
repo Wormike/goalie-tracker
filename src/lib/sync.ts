@@ -138,8 +138,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         id: ensureUuid(t.id),
         name: t.name,
         short_name: t.shortName || null,
-        club_external_id: t.clubExternalId || null,
-        team_external_id: t.teamExternalId || null,
+        external_id: t.externalId || t.clubExternalId || t.teamExternalId || null, // Unified external_id
       }));
 
       const { error: teamsError } = await supabase
@@ -190,10 +189,12 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           first_name: g.firstName,
           last_name: g.lastName,
           birth_year: g.birthYear || null,
-          team: g.team || null,
+          team_id: isValidUuid(g.teamId || "") ? g.teamId : null,
+          team_name: g.teamName || g.team || null, // Fallback team name
           jersey_number: g.jerseyNumber || null,
           catch_hand: g.catchHand || null,
-          photo_url: g.photo || g.profilePhotoUrl || null,
+          photo_url: g.photoUrl || g.photo || g.profilePhotoUrl || null,
+          competition_id: isValidUuid(g.competitionId || "") ? g.competitionId : null,
           note: g.note || null,
         };
       });
@@ -219,18 +220,32 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         matchIdMap.set(m.id, newId);
         
         // Get mapped goalie ID
-        const goalieId = m.goalieId ? goalieIdMap.get(m.goalieId) || null : null;
+        const goalieId = m.goalieId ? goalieIdMap.get(m.goalieId) || m.goalieId : null;
+        
+        // Map status: legacy "open"/"closed" -> new "scheduled"/"completed"/"in_progress"
+        let status = "scheduled";
+        if (m.status === "completed" || m.completed) {
+          status = "completed";
+        } else if (m.status === "in_progress") {
+          status = "in_progress";
+        } else if (m.status === "cancelled") {
+          status = "cancelled";
+        } else if (m.status === "closed") {
+          status = "completed";
+        }
         
         return {
           id: newId,
-          home_team_name: m.home,
-          away_team_name: m.away,
-          type: m.matchType || "friendly",
-          competition: m.category || null,
-          season: m.seasonId || null,
+          home_team_id: isValidUuid(m.homeTeamId || "") ? m.homeTeamId : null,
+          home_team_name: m.homeTeamName || m.home || null,
+          away_team_id: isValidUuid(m.awayTeamId || "") ? m.awayTeamId : null,
+          away_team_name: m.awayTeamName || m.away || null,
+          match_type: m.matchType || "friendly",
+          competition_id: isValidUuid(m.competitionId || "") ? m.competitionId : null,
+          season_id: isValidUuid(m.seasonId || "") ? m.seasonId : null,
           datetime: m.datetime,
           venue: m.venue || null,
-          status: m.completed ? "closed" : (m.status || "open"),
+          status: status as "scheduled" | "in_progress" | "completed" | "cancelled",
           home_score: m.homeScore ?? null,
           away_score: m.awayScore ?? null,
           goalie_id: isValidUuid(goalieId || "") ? goalieId : null,
@@ -239,7 +254,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           external_url: m.externalUrl || null,
           manual_shots: m.manualStats?.shots ?? null,
           manual_saves: m.manualStats?.saves ?? null,
-          manual_goals: m.manualStats?.goals ?? null,
+          manual_goals_against: m.manualStats?.goals ?? null, // Fixed: manual_goals_against
         };
       });
 
@@ -263,6 +278,11 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           const matchId = matchIdMap.get(e.matchId) || e.matchId;
           const goalieId = goalieIdMap.get(e.goalieId) || e.goalieId;
 
+          // Map situation: legacy "powerplay"/"shorthanded" -> "pp"/"sh"
+          let situation = e.situation || "even";
+          if (situation === "powerplay") situation = "pp";
+          if (situation === "shorthanded") situation = "sh";
+          
           return {
             id: ensureUuid(e.id),
             match_id: isValidUuid(matchId) ? matchId : null,
@@ -275,12 +295,13 @@ export async function uploadToSupabase(): Promise<SyncResult> {
             shot_zone: e.shotPosition?.zone || null,
             goal_x: e.goalPosition?.x ?? null,
             goal_y: e.goalPosition?.y ?? null,
-            shot_target: e.shotTarget || null,
+            goal_zone: e.goalPosition?.zone || null,
+            shot_type: e.shotType || null,
             save_type: e.saveType || null,
             goal_type: e.goalType || null,
-            situation: e.situation || "even",
-            is_rebound: e.rebound || false,
-            screened_view: e.screenedView || false,
+            situation: situation as "even" | "pp" | "sh" | "4v4" | "3v3",
+            is_rebound: e.isRebound ?? e.rebound ?? false,
+            is_screened: e.isScreened ?? e.screenedView ?? false,
             input_source: e.inputSource || "manual",
             status: e.status || "confirmed",
           };
@@ -353,10 +374,15 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           firstName: g.first_name,
           lastName: g.last_name,
           birthYear: g.birth_year || 0,
-          team: g.team || "",
+          teamId: g.team_id || undefined,
+          teamName: g.team_name || undefined,
+          team: g.team_name || g.team || "", // Legacy field
           jerseyNumber: g.jersey_number || undefined,
           catchHand: g.catch_hand || undefined,
           photo: g.photo_url || undefined,
+          photoUrl: g.photo_url || undefined,
+          profilePhotoUrl: g.photo_url || undefined,
+          competitionId: g.competition_id || undefined,
           note: g.note || undefined,
           createdAt: g.created_at,
           updatedAt: g.updated_at,
@@ -375,17 +401,26 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
       result.errors.push(`Matches: ${matchesError.message}`);
     } else if (matchesData) {
       matchesData.forEach((m) => {
+        // Map status: new schema -> legacy
+        const isCompleted = m.status === "completed";
+        const status = m.status === "closed" ? "closed" : (m.status === "open" ? "open" : (isCompleted ? "closed" : "open"));
+        
         const match: Match = {
           id: m.id,
           home: m.home_team_name || "Domácí",
           away: m.away_team_name || "Hosté",
-          category: m.competition || "",
-          matchType: m.type || "friendly",
-          seasonId: m.season || "",
+          homeTeamId: m.home_team_id || undefined,
+          homeTeamName: m.home_team_name || undefined,
+          awayTeamId: m.away_team_id || undefined,
+          awayTeamName: m.away_team_name || undefined,
+          category: m.competition_id || "", // Legacy field
+          matchType: (m.match_type || m.type || "friendly") as MatchType,
+          competitionId: m.competition_id || undefined,
+          seasonId: m.season_id || m.season || "",
           datetime: m.datetime,
           venue: m.venue || undefined,
-          status: m.status || "open",
-          completed: m.status === "closed",
+          status: status as MatchStatus,
+          completed: isCompleted,
           homeScore: m.home_score ?? undefined,
           awayScore: m.away_score ?? undefined,
           goalieId: m.goalie_id || undefined,
@@ -395,7 +430,7 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           manualStats: m.manual_shots != null ? {
             shots: m.manual_shots,
             saves: m.manual_saves || 0,
-            goals: m.manual_goals || 0,
+            goals: m.manual_goals_against || m.manual_goals || 0, // Fixed: manual_goals_against
           } : undefined,
           createdAt: m.created_at,
           updatedAt: m.updated_at,
@@ -414,6 +449,11 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
       result.errors.push(`Events: ${eventsError.message}`);
     } else if (eventsData) {
       eventsData.forEach((e) => {
+        // Map situation: "pp"/"sh" -> legacy "powerplay"/"shorthanded" for compatibility
+        let situation = e.situation || "even";
+        if (situation === "pp") situation = "powerplay";
+        if (situation === "sh") situation = "shorthanded";
+        
         const event: GoalieEvent = {
           id: e.id,
           matchId: e.match_id,
@@ -430,14 +470,17 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           goalPosition: e.goal_x != null && e.goal_y != null ? {
             x: e.goal_x,
             y: e.goal_y,
-            zone: "middle_center",
+            zone: (e.goal_zone || "middle_center") as any,
           } : undefined,
           shotTarget: e.shot_target || undefined,
+          shotType: e.shot_type || undefined,
           saveType: e.save_type || undefined,
           goalType: e.goal_type || undefined,
-          situation: e.situation || "even",
-          rebound: e.is_rebound || false,
-          screenedView: e.screened_view || false,
+          situation: situation as SituationType,
+          isRebound: e.is_rebound ?? false,
+          rebound: e.is_rebound ?? false, // Legacy field
+          isScreened: e.is_screened ?? false,
+          screenedView: e.is_screened ?? false, // Legacy field
           inputSource: e.input_source || "manual",
           status: e.status || "confirmed",
           createdAt: e.created_at,

@@ -18,17 +18,25 @@ export function isUuid(value?: string | null): boolean {
 
 export interface DbMatch {
   id: string;
-  type: "friendly" | "league" | "tournament" | "cup";
-  status: "open" | "closed";
+  match_type: "friendly" | "league" | "tournament" | "playoff";
+  status: "scheduled" | "in_progress" | "completed" | "cancelled";
   home_team_id: string | null;
+  home_team_name: string | null;
+  away_team_id: string | null;
   away_team_name: string | null;
+  competition_id: string | null;
+  season_id: string | null;
   datetime: string;
-  competition: string | null;
-  season: string | null;
   venue: string | null;
   goalie_id: string | null;
   home_score: number | null;
   away_score: number | null;
+  manual_shots: number | null;
+  manual_saves: number | null;
+  manual_goals_against: number | null;
+  source: string | null;
+  external_id: string | null;
+  external_url: string | null;
   created_at: string;
   updated_at: string;
   // Joined data
@@ -39,7 +47,8 @@ export interface DbMatch {
   } | null;
   goalie?: {
     id: string;
-    name: string;
+    first_name: string;
+    last_name: string;
     jersey_number: number | null;
   } | null;
 }
@@ -52,33 +61,48 @@ export interface DbMatch {
  * Convert database match to app Match type
  */
 export function dbMatchToAppMatch(db: DbMatch): Match {
+  // Map status: new schema -> legacy
+  const isCompleted = db.status === "completed";
+  const status = db.status === "closed" ? "closed" : (db.status === "open" ? "open" : (isCompleted ? "closed" : "open"));
+  
   return {
     id: db.id,
     // Teams
-    home: db.home_team?.name || "Domácí",
+    home: db.home_team?.name || db.home_team_name || "Domácí",
     away: db.away_team_name || "Hosté",
     homeTeamId: db.home_team_id || undefined,
+    homeTeamName: db.home_team_name || undefined,
+    awayTeamId: db.away_team_id || undefined,
     awayTeamName: db.away_team_name || undefined,
     // Classification
-    category: db.competition || "",
-    matchType: db.type as MatchType,
-    seasonId: db.season || "",
+    category: db.competition_id || "", // Legacy field
+    matchType: (db.match_type || "friendly") as MatchType,
+    competitionId: db.competition_id || undefined,
+    seasonId: db.season_id || "",
     // Timing
     datetime: db.datetime,
     venue: db.venue || undefined,
     // Status
-    status: db.status as MatchStatus,
-    completed: db.status === "closed",
+    status: status as MatchStatus,
+    completed: isCompleted,
     // Scores
     homeScore: db.home_score ?? undefined,
     awayScore: db.away_score ?? undefined,
     // Goalie
     goalieId: db.goalie_id || undefined,
+    // Manual stats
+    manualStats: db.manual_shots != null ? {
+      shots: db.manual_shots,
+      saves: db.manual_saves || 0,
+      goals: db.manual_goals_against || 0,
+    } : undefined,
+    // Source
+    source: (db.source as MatchSource) || "manual",
+    externalId: db.external_id || undefined,
+    externalUrl: db.external_url || undefined,
     // Timestamps
     createdAt: db.created_at,
     updatedAt: db.updated_at,
-    // Source
-    source: "manual",
   };
 }
 
@@ -89,19 +113,49 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
   const payload: Record<string, unknown> = {};
   
   if (match.homeTeamId !== undefined) payload.home_team_id = match.homeTeamId || null;
+  if (match.homeTeamName !== undefined || match.home !== undefined) {
+    payload.home_team_name = match.homeTeamName || match.home || null;
+  }
+  if (match.awayTeamId !== undefined) payload.away_team_id = match.awayTeamId || null;
   if (match.awayTeamName !== undefined || match.away !== undefined) {
     payload.away_team_name = match.awayTeamName || match.away || null;
   }
   if (match.datetime !== undefined) payload.datetime = match.datetime;
-  if (match.category !== undefined) payload.competition = match.category || null;
-  if (match.seasonId !== undefined) payload.season = match.seasonId || null;
+  if (match.competitionId !== undefined) {
+    payload.competition_id = isUuid(match.competitionId) ? match.competitionId : null;
+  }
+  if (match.seasonId !== undefined) {
+    payload.season_id = isUuid(match.seasonId) ? match.seasonId : null;
+  }
   if (match.venue !== undefined) payload.venue = match.venue || null;
-  if (match.matchType !== undefined) payload.type = match.matchType;
-  if (match.status !== undefined) payload.status = match.status;
-  if (match.completed !== undefined) payload.status = match.completed ? "closed" : "open";
+  if (match.matchType !== undefined) payload.match_type = match.matchType;
+  
+  // Map status: legacy -> new schema
+  if (match.status !== undefined || match.completed !== undefined) {
+    if (match.status === "completed" || match.completed) {
+      payload.status = "completed";
+    } else if (match.status === "in_progress") {
+      payload.status = "in_progress";
+    } else if (match.status === "cancelled") {
+      payload.status = "cancelled";
+    } else {
+      payload.status = "scheduled";
+    }
+  }
+  
   if (match.goalieId !== undefined) payload.goalie_id = match.goalieId || null;
   if (match.homeScore !== undefined) payload.home_score = match.homeScore ?? null;
   if (match.awayScore !== undefined) payload.away_score = match.awayScore ?? null;
+  
+  if (match.manualStats !== undefined) {
+    payload.manual_shots = match.manualStats.shots ?? null;
+    payload.manual_saves = match.manualStats.saves ?? null;
+    payload.manual_goals_against = match.manualStats.goals ?? null;
+  }
+  
+  if (match.source !== undefined) payload.source = match.source || null;
+  if (match.externalId !== undefined) payload.external_id = match.externalId || null;
+  if (match.externalUrl !== undefined) payload.external_url = match.externalUrl || null;
   
   return payload as Partial<DbMatch>;
 }
@@ -125,7 +179,7 @@ export async function getMatches(): Promise<Match[]> {
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-        goalie:goalies!matches_goalie_id_fkey(id, name, jersey_number)
+        goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .order("datetime", { ascending: false });
 
@@ -163,7 +217,7 @@ export async function getMatchById(id: string): Promise<Match | null> {
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-        goalie:goalies!matches_goalie_id_fkey(id, name, jersey_number)
+        goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .eq("id", id)
       .single();
@@ -185,14 +239,24 @@ export async function getMatchById(id: string): Promise<Match | null> {
  */
 export interface CreateMatchPayload {
   home_team_id?: string;
+  home_team_name?: string;
+  away_team_id?: string;
   away_team_name: string;
   datetime: string;
-  competition?: string;
-  season?: string;
+  competition_id?: string;
+  season_id?: string;
   venue?: string;
-  type?: "friendly" | "league" | "tournament" | "cup";
-  status?: "open" | "closed";
+  match_type?: "friendly" | "league" | "tournament" | "playoff";
+  status?: "scheduled" | "in_progress" | "completed" | "cancelled";
   goalie_id?: string;
+  home_score?: number;
+  away_score?: number;
+  manual_shots?: number;
+  manual_saves?: number;
+  manual_goals_against?: number;
+  source?: string;
+  external_id?: string;
+  external_url?: string;
 }
 
 export async function createMatch(payload: CreateMatchPayload): Promise<Match | null> {
@@ -204,14 +268,24 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
   try {
     const cleanPayload = {
       home_team_id: isUuid(payload.home_team_id) ? payload.home_team_id : null,
+      home_team_name: payload.home_team_name || null,
+      away_team_id: isUuid(payload.away_team_id) ? payload.away_team_id : null,
       away_team_name: payload.away_team_name,
       datetime: payload.datetime,
-      competition: payload.competition || null,
-      season: payload.season || null,
+      competition_id: isUuid(payload.competition_id) ? payload.competition_id : null,
+      season_id: isUuid(payload.season_id) ? payload.season_id : null,
       venue: payload.venue || null,
-      type: payload.type || "friendly",
-      status: payload.status || "open",
+      match_type: payload.match_type || "friendly",
+      status: payload.status || "scheduled",
       goalie_id: isUuid(payload.goalie_id) ? payload.goalie_id : null,
+      home_score: payload.home_score ?? null,
+      away_score: payload.away_score ?? null,
+      manual_shots: payload.manual_shots ?? null,
+      manual_saves: payload.manual_saves ?? null,
+      manual_goals_against: payload.manual_goals_against ?? null,
+      source: payload.source || "manual",
+      external_id: payload.external_id || null,
+      external_url: payload.external_url || null,
     };
 
     const { data, error } = await supabase
@@ -220,7 +294,7 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-        goalie:goalies!matches_goalie_id_fkey(id, name, jersey_number)
+        goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .single();
 
@@ -241,7 +315,7 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
  */
 export async function updateMatch(
   id: string,
-  payload: Partial<CreateMatchPayload> & { home_score?: number; away_score?: number }
+  payload: Partial<CreateMatchPayload>
 ): Promise<Match | null> {
   if (!isSupabaseConfigured() || !supabase) {
     console.warn("[matches] Supabase not configured");
@@ -254,16 +328,24 @@ export async function updateMatch(
     };
     
     if (payload.home_team_id !== undefined) updatePayload.home_team_id = payload.home_team_id || null;
+    if (payload.home_team_name !== undefined) updatePayload.home_team_name = payload.home_team_name || null;
+    if (payload.away_team_id !== undefined) updatePayload.away_team_id = payload.away_team_id || null;
     if (payload.away_team_name !== undefined) updatePayload.away_team_name = payload.away_team_name;
     if (payload.datetime !== undefined) updatePayload.datetime = payload.datetime;
-    if (payload.competition !== undefined) updatePayload.competition = payload.competition || null;
-    if (payload.season !== undefined) updatePayload.season = payload.season || null;
+    if (payload.competition_id !== undefined) updatePayload.competition_id = payload.competition_id || null;
+    if (payload.season_id !== undefined) updatePayload.season_id = payload.season_id || null;
     if (payload.venue !== undefined) updatePayload.venue = payload.venue || null;
-    if (payload.type !== undefined) updatePayload.type = payload.type;
+    if (payload.match_type !== undefined) updatePayload.match_type = payload.match_type;
     if (payload.status !== undefined) updatePayload.status = payload.status;
     if (payload.goalie_id !== undefined) updatePayload.goalie_id = payload.goalie_id || null;
     if (payload.home_score !== undefined) updatePayload.home_score = payload.home_score;
     if (payload.away_score !== undefined) updatePayload.away_score = payload.away_score;
+    if (payload.manual_shots !== undefined) updatePayload.manual_shots = payload.manual_shots ?? null;
+    if (payload.manual_saves !== undefined) updatePayload.manual_saves = payload.manual_saves ?? null;
+    if (payload.manual_goals_against !== undefined) updatePayload.manual_goals_against = payload.manual_goals_against ?? null;
+    if (payload.source !== undefined) updatePayload.source = payload.source || null;
+    if (payload.external_id !== undefined) updatePayload.external_id = payload.external_id || null;
+    if (payload.external_url !== undefined) updatePayload.external_url = payload.external_url || null;
 
     const { data, error } = await supabase
       .from("matches")
@@ -272,7 +354,7 @@ export async function updateMatch(
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-        goalie:goalies!matches_goalie_id_fkey(id, name, jersey_number)
+        goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .single();
 

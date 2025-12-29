@@ -15,11 +15,12 @@ export interface DbGoalie {
   first_name: string;
   last_name: string;
   birth_year: number | null;
-  team: string | null;
-  club_team_id: string | null;
+  team_id: string | null;
+  team_name: string | null;
   jersey_number: number | null;
   catch_hand: "L" | "R" | null;
   photo_url: string | null;
+  competition_id: string | null;
   note: string | null;
   created_at: string;
   updated_at: string;
@@ -35,12 +36,15 @@ export function dbGoalieToAppGoalie(db: DbGoalie): Goalie {
     firstName: db.first_name,
     lastName: db.last_name,
     birthYear: db.birth_year || 0,
-    team: db.team || "",
-    clubTeamId: db.club_team_id || undefined,
+    teamId: db.team_id || undefined,
+    teamName: db.team_name || undefined,
+    team: db.team_name || "", // Legacy field
     jerseyNumber: db.jersey_number || undefined,
     catchHand: db.catch_hand || undefined,
     photo: db.photo_url || undefined,
+    photoUrl: db.photo_url || undefined,
     profilePhotoUrl: db.photo_url || undefined,
+    competitionId: db.competition_id || undefined,
     note: db.note || undefined,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
@@ -53,13 +57,16 @@ export function appGoalieToDbPayload(goalie: Partial<Goalie>): Partial<DbGoalie>
   if (goalie.firstName !== undefined) payload.first_name = goalie.firstName;
   if (goalie.lastName !== undefined) payload.last_name = goalie.lastName;
   if (goalie.birthYear !== undefined) payload.birth_year = goalie.birthYear || null;
-  if (goalie.team !== undefined) payload.team = goalie.team || null;
-  if (goalie.clubTeamId !== undefined) payload.club_team_id = isUuid(goalie.clubTeamId) ? goalie.clubTeamId : null;
+  if (goalie.teamId !== undefined) payload.team_id = isUuid(goalie.teamId) ? goalie.teamId : null;
+  if (goalie.teamName !== undefined || goalie.team !== undefined) {
+    payload.team_name = goalie.teamName || goalie.team || null;
+  }
   if (goalie.jerseyNumber !== undefined) payload.jersey_number = goalie.jerseyNumber || null;
   if (goalie.catchHand !== undefined) payload.catch_hand = goalie.catchHand || null;
-  if (goalie.photo !== undefined || goalie.profilePhotoUrl !== undefined) {
-    payload.photo_url = goalie.profilePhotoUrl || goalie.photo || null;
+  if (goalie.photoUrl !== undefined || goalie.photo !== undefined || goalie.profilePhotoUrl !== undefined) {
+    payload.photo_url = goalie.photoUrl || goalie.profilePhotoUrl || goalie.photo || null;
   }
+  if (goalie.competitionId !== undefined) payload.competition_id = isUuid(goalie.competitionId) ? goalie.competitionId : null;
   if (goalie.note !== undefined) payload.note = goalie.note || null;
 
   return payload as Partial<DbGoalie>;

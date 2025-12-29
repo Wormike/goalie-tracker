@@ -18,7 +18,7 @@ export type ShotZone =
 export type ResultType = "save" | "goal" | "miss";
 export type SaveType = "catch" | "rebound";
 export type GoalType = "direct" | "rebound" | "breakaway";
-export type SituationType = "even" | "powerplay" | "shorthanded";
+export type SituationType = "even" | "pp" | "sh" | "4v4" | "3v3" | "powerplay" | "shorthanded"; // "powerplay" and "shorthanded" are legacy
 
 // NEW: Input source for events (how the event was recorded)
 export type InputSource = "live" | "manual" | "import";
@@ -83,15 +83,18 @@ export interface Goalie {
   firstName: string;
   lastName: string;
   birthYear: number;
-  team: string;
+  teamId?: string; // NEW: FK to teams
+  teamName?: string; // Fallback team name
+  team: string; // Legacy field - maps to teamName
   jerseyNumber?: number;
-  catchHand?: "L" | "R"; // NEW: Catching hand
+  catchHand?: "L" | "R"; // Catching hand
   photo?: string;
-  profilePhotoUrl?: string; // NEW: Alternative photo field
-  clubTeamId?: string; // NEW: Link to Team
-  note?: string; // NEW: Notes about goalie
+  profilePhotoUrl?: string; // Alternative photo field
+  photoUrl?: string; // Maps to photo_url in DB
+  competitionId?: string; // NEW: FK to competitions
+  note?: string; // Notes about goalie
   createdAt: string;
-  updatedAt?: string; // NEW
+  updatedAt?: string;
 }
 
 // Season definition
@@ -108,14 +111,13 @@ export interface Season {
   externalId?: string; // Season ID on ceskyhokej.cz
 }
 
-// NEW: Team entity
+// Team entity
 export interface Team {
   id: string;
   name: string;
   shortName?: string;
-  clubExternalId?: string; // ID klubu na svazu
-  teamExternalId?: string; // ID konkrétního družstva/týmu
-  defaultCompetitionIds?: string[];
+  externalId?: string; // External ID (unified, replaces clubExternalId/teamExternalId)
+  defaultCompetitionIds?: string[]; // Legacy field
   createdAt?: string;
   updatedAt?: string;
 }
@@ -175,24 +177,26 @@ export interface Match {
   id: string;
   
   // Teams - support both legacy (string) and new (ID) format
-  home: string; // Team name (legacy)
-  away: string; // Team name (legacy)
-  homeTeamId?: string; // NEW: Reference to Team
-  awayTeamName?: string; // NEW: Away team name (when not in our Team list)
+  home: string; // Team name (legacy, maps to homeTeamName)
+  away: string; // Team name (legacy, maps to awayTeamName)
+  homeTeamId?: string; // FK to teams
+  homeTeamName?: string; // Fallback team name
+  awayTeamId?: string; // FK to teams
+  awayTeamName?: string; // Away team name (when not in our Team list)
   
   // Classification
-  category: string;
+  category: string; // Legacy field, maps to competition_id
   matchType: MatchType;
-  competitionId?: string; // NEW: Reference to Competition
-  seasonId: string;
+  competitionId?: string; // FK to competitions
+  seasonId: string; // FK to seasons
   
   // Timing and location
   datetime: string;
   venue?: string;
   
-  // Status
-  status?: MatchStatus; // NEW: open/closed
-  completed?: boolean; // Legacy field
+  // Status - NEW schema uses: "scheduled" | "in_progress" | "completed" | "cancelled"
+  status?: MatchStatus | "scheduled" | "in_progress" | "completed" | "cancelled";
+  completed?: boolean; // Legacy field, maps to status === "completed"
   
   // Scores
   homeScore?: number;
@@ -205,7 +209,7 @@ export interface Match {
   source?: MatchSource;
   externalId?: string;
   externalUrl?: string;
-  importedFrom?: ImportMeta; // NEW: Detailed import metadata
+  importedFrom?: ImportMeta; // Detailed import metadata
   
   // Roster and goal scorers
   roster?: MatchRoster;
@@ -214,12 +218,12 @@ export interface Match {
   manualStats?: {
     shots: number;
     saves: number;
-    goals: number;
+    goals: number; // Maps to manual_goals_against in DB
   };
   
   // Timestamps
-  createdAt?: string; // NEW
-  updatedAt?: string; // NEW
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Goalie event (shot tracking)
@@ -244,7 +248,10 @@ export interface GoalieEvent {
   goalType?: GoalType;
   situation?: SituationType;
   rebound?: boolean;
-  screenedView?: boolean;
+  isRebound?: boolean; // Maps to is_rebound in DB
+  screenedView?: boolean; // Legacy
+  isScreened?: boolean; // Maps to is_screened in DB
+  shotType?: string; // Maps to shot_type in DB
   
   // Tracking fields
   inputSource?: InputSource; // How event was recorded
