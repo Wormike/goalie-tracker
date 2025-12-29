@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Goalie } from "@/lib/types";
 import { getGoalies, saveGoalie, deleteGoalie, calculateGoalieStats } from "@/lib/storage";
+import { useAutoSync } from "@/hooks/useAutoSync";
 
 export default function GoaliesPage() {
   const router = useRouter();
+  const { syncNow } = useAutoSync();
   const [goalies, setGoalies] = useState<Goalie[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingGoalie, setEditingGoalie] = useState<Goalie | null>(null);
@@ -37,6 +39,11 @@ export default function GoaliesPage() {
     saveGoalie(goalie);
     setGoalies(getGoalies());
     resetForm();
+    
+    // Trigger sync to Supabase (background)
+    syncNow().catch(err => {
+      console.error('[GoaliesPage] Background sync failed:', err);
+    });
   };
 
   const resetForm = () => {
@@ -67,6 +74,11 @@ export default function GoaliesPage() {
     if (confirm("Opravdu smazat tohoto brankáře?")) {
       deleteGoalie(id);
       setGoalies(getGoalies());
+      
+      // Trigger sync to Supabase (background)
+      syncNow().catch(err => {
+        console.error('[GoaliesPage] Background sync failed:', err);
+      });
     }
   };
 
@@ -239,6 +251,7 @@ export default function GoaliesPage() {
     </div>
   );
 }
+
 
 
 

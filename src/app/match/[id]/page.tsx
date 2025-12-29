@@ -39,6 +39,7 @@ import {
 } from "@/lib/repositories/events";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { generateMatchReport, shareText } from "@/lib/utils";
+import { useAutoSync } from "@/hooks/useAutoSync";
 
 function getZoneFromCoords(x: number, y: number): ShotZone {
   if (y < 30) return "blue_line";
@@ -46,6 +47,10 @@ function getZoneFromCoords(x: number, y: number): ShotZone {
   if (x < 30) return "left_wing";
   if (x > 70) return "right_wing";
   return "slot";
+}
+
+function generateEventId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 function isUuid(value: string): boolean {
@@ -58,6 +63,7 @@ export default function MatchPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const isMobile = useIsMobile();
+  const { syncNow } = useAutoSync();
 
   const [match, setMatch] = useState<Match | null>(null);
   const [showLandscapeMode, setShowLandscapeMode] = useState(false);
@@ -136,6 +142,24 @@ export default function MatchPage() {
     }
   }, [match, dataSource]);
 
+  // Force reload events when page becomes visible (mobile fix)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && match && dataSource === 'local') {
+        // Reload events when user comes back to the page
+        const reloadedEvents = getEventsByMatchLocal(match.id);
+        if (reloadedEvents.length !== events.length) {
+          setEvents(reloadedEvents);
+          setAllEvents(getAllEventsByMatch(match.id));
+          console.log('[MatchPage] Reloaded events on visibility change:', reloadedEvents.length);
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [match, dataSource, events.length]);
+
   const isMatchClosed = match?.status === "closed" || match?.completed;
 
   const stats = useMemo(() => {
@@ -189,11 +213,13 @@ export default function MatchPage() {
       if (createdEvent) {
         setEvents((prev) => [...prev, createdEvent]);
         setAllEvents((prev) => [...prev, createdEvent]);
+      } else {
+        console.error("[MatchPage] Failed to create event in Supabase");
       }
     } else {
       // Create event in localStorage
       const newEvent: GoalieEvent = {
-        id: `${Date.now()}`,
+        id: generateEventId(),
         matchId: match.id,
         goalieId: goalie?.id || "",
         period,
@@ -206,9 +232,18 @@ export default function MatchPage() {
         status: "confirmed",
         createdAt: now,
       };
+      
       saveEventLocal(newEvent);
-      setEvents((prev) => [...prev, newEvent]);
-      setAllEvents((prev) => [...prev, newEvent]);
+      
+      // Re-read from storage to ensure consistency
+      const updatedEvents = getEventsByMatchLocal(match.id);
+      setEvents(updatedEvents);
+      setAllEvents(getAllEventsByMatch(match.id));
+      
+      // Trigger sync to Supabase (background)
+      syncNow().catch(err => {
+        console.error('[MatchPage] Background sync failed:', err);
+      });
     }
   };
 
@@ -465,7 +500,7 @@ export default function MatchPage() {
           onAddEvent={({ result, situation, shotPosition }) => {
             const now = new Date().toISOString();
             const newEvent: GoalieEvent = {
-              id: `${Date.now()}`,
+              id: generateEventId(),
               matchId: match.id,
               goalieId: goalie?.id || "",
               period,
@@ -478,10 +513,18 @@ export default function MatchPage() {
               status: "confirmed",
               createdAt: now,
             };
-            // TODO: Add Supabase support for landscape mode events
+            
             saveEventLocal(newEvent);
-            setEvents((prev) => [...prev, newEvent]);
-            setAllEvents((prev) => [...prev, newEvent]);
+            
+            // Re-read from storage
+            const updatedEvents = getEventsByMatchLocal(match.id);
+            setEvents(updatedEvents);
+            setAllEvents(getAllEventsByMatch(match.id));
+            
+            // Trigger sync to Supabase (background)
+            syncNow().catch(err => {
+              console.error('[MatchPage] Background sync failed:', err);
+            });
           }}
           onClose={() => setShowLandscapeMode(false)}
         />
@@ -826,37 +869,69 @@ export default function MatchPage() {
         onClose={() => setModalOpen(false)}
         zone={pendingZone}
         header={`${period}. třetina • ${gameTime}`}
-        onSubmit={({ result, saveType, goalType, situation, goalPosition }) => {
+        onSubmit={async ({ result, saveType, goalType, situation, goalPosition }) => {
           if (!pendingCoords || !match || isMatchClosed) return;
           const now = new Date().toISOString();
           const zone =
             pendingZone ?? getZoneFromCoords(pendingCoords.x, pendingCoords.y);
 
-          const newEvent: GoalieEvent = {
-            id: `${Date.now()}`,
-            matchId: match.id,
-            goalieId: goalie?.id || "",
-            period,
-            gameTime,
-            timestamp: now,
-            result,
-            shotPosition: {
-              x: pendingCoords.x,
-              y: pendingCoords.y,
-              zone,
-            },
-            goalPosition,
-            saveType,
-            goalType,
-            situation,
-            inputSource: "live",
-            status: "confirmed",
-            createdAt: now,
-          };
-          // TODO: Add Supabase support for modal events
-          saveEventLocal(newEvent);
-          setEvents((prev) => [...prev, newEvent]);
-          setAllEvents((prev) => [...prev, newEvent]);
+          if (dataSource === "supabase") {
+            // Create event in Supabase
+            const periodStr = period === "OT" ? "OT" : String(period) as "1" | "2" | "3";
+            const createdEvent = await createEventSupabase({
+              match_id: match.id,
+              goalie_id: goalie?.id,
+              period: periodStr,
+              game_time: gameTime,
+              result,
+              shot_x: pendingCoords.x,
+              shot_y: pendingCoords.y,
+              input_source: "live",
+            });
+            
+            if (createdEvent) {
+              setEvents((prev) => [...prev, createdEvent]);
+              setAllEvents((prev) => [...prev, createdEvent]);
+            } else {
+              console.error("[MatchPage] Failed to create event in Supabase");
+            }
+          } else {
+            // Create event in localStorage
+            const newEvent: GoalieEvent = {
+              id: generateEventId(),
+              matchId: match.id,
+              goalieId: goalie?.id || "",
+              period,
+              gameTime,
+              timestamp: now,
+              result,
+              shotPosition: {
+                x: pendingCoords.x,
+                y: pendingCoords.y,
+                zone,
+              },
+              goalPosition,
+              saveType,
+              goalType,
+              situation,
+              inputSource: "live",
+              status: "confirmed",
+              createdAt: now,
+            };
+            
+            saveEventLocal(newEvent);
+            
+            // Re-read from storage
+            const updatedEvents = getEventsByMatchLocal(match.id);
+            setEvents(updatedEvents);
+            setAllEvents(getAllEventsByMatch(match.id));
+            
+            // Trigger sync to Supabase (background)
+            syncNow().catch(err => {
+              console.error('[MatchPage] Background sync failed:', err);
+            });
+          }
+          
           setModalOpen(false);
           setPendingCoords(null);
         }}

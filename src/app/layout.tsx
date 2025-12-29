@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ClientProviders } from "@/components/ClientProviders";
+import { AutoSyncProvider } from "@/components/AutoSyncProvider";
 
 export const metadata: Metadata = {
   title: "Goalie Tracker",
@@ -47,9 +48,11 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-bgMain text-slate-50">
         <ClientProviders>
-          <div className="mx-auto flex min-h-screen max-w-md flex-col">
-            {children}
-          </div>
+          <AutoSyncProvider>
+            <div className="mx-auto flex min-h-screen max-w-md flex-col">
+              {children}
+            </div>
+          </AutoSyncProvider>
         </ClientProviders>
       </body>
     </html>

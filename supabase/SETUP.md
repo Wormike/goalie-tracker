@@ -94,3 +94,5 @@ Pro multi-user aplikaci:
 3. Vytvoř policies pro řízení přístupu
 
 
+
+
