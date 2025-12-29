@@ -138,8 +138,15 @@ export default function MatchPage() {
   // Auto-refresh events when match changes (for local storage mode)
   useEffect(() => {
     if (match && dataSource === "local") {
-      setEvents(getEventsByMatchLocal(match.id));
-      setAllEvents(getAllEventsByMatch(match.id));
+      const loadedEvents = getEventsByMatchLocal(match.id);
+      const loadedAllEvents = getAllEventsByMatch(match.id);
+      console.log('[MatchPage] Auto-refresh events:', {
+        matchId: match.id,
+        eventsCount: loadedEvents.length,
+        allEventsCount: loadedAllEvents.length,
+      });
+      setEvents(loadedEvents);
+      setAllEvents(loadedAllEvents);
     }
   }, [match, dataSource]);
 
@@ -238,8 +245,14 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
       
       // Re-read from storage to ensure consistency
       const updatedEvents = getEventsByMatchLocal(match.id);
+      const updatedAllEvents = getAllEventsByMatch(match.id);
+      console.log('[MatchPage] Saved event, reloaded:', {
+        eventId: newEvent.id,
+        updatedEventsCount: updatedEvents.length,
+        updatedAllEventsCount: updatedAllEvents.length,
+      });
       setEvents(updatedEvents);
-      setAllEvents(getAllEventsByMatch(match.id));
+      setAllEvents(updatedAllEvents);
       
       // Trigger sync to Supabase (background)
       syncNow().catch(err => {
@@ -517,10 +530,16 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
             
             saveEventLocal(newEvent);
             
-            // Re-read from storage
+            // Re-read from storage to ensure consistency
             const updatedEvents = getEventsByMatchLocal(match.id);
+            const updatedAllEvents = getAllEventsByMatch(match.id);
+            console.log('[MatchPage] Saved event from landscape, reloaded:', {
+              eventId: newEvent.id,
+              updatedEventsCount: updatedEvents.length,
+              updatedAllEventsCount: updatedAllEvents.length,
+            });
             setEvents(updatedEvents);
-            setAllEvents(getAllEventsByMatch(match.id));
+            setAllEvents(updatedAllEvents);
             
             // Trigger sync to Supabase (background)
             syncNow().catch(err => {
@@ -922,10 +941,16 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
             
             saveEventLocal(newEvent);
             
-            // Re-read from storage
+            // Re-read from storage to ensure consistency
             const updatedEvents = getEventsByMatchLocal(match.id);
+            const updatedAllEvents = getAllEventsByMatch(match.id);
+            console.log('[MatchPage] Saved event from modal, reloaded:', {
+              eventId: newEvent.id,
+              updatedEventsCount: updatedEvents.length,
+              updatedAllEventsCount: updatedAllEvents.length,
+            });
             setEvents(updatedEvents);
-            setAllEvents(getAllEventsByMatch(match.id));
+            setAllEvents(updatedAllEvents);
             
             // Trigger sync to Supabase (background)
             syncNow().catch(err => {
