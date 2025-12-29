@@ -90,7 +90,9 @@ export default function HomePage() {
       try {
         const supabaseMatches = await getMatchesSupabase();
         if (supabaseMatches.length > 0) {
-          setMatches(supabaseMatches);
+          // Deduplicate matches by ID and externalId
+          const uniqueMatches = deduplicateMatches(supabaseMatches);
+          setMatches(uniqueMatches);
           setDataSource("supabase");
           setLoading(false);
           return;
@@ -101,9 +103,74 @@ export default function HomePage() {
     }
     
     // Fallback to localStorage
-    setMatches(getMatchesLocal());
+    const localMatches = getMatchesLocal();
+    // Deduplicate matches by ID and externalId
+    const uniqueMatches = deduplicateMatches(localMatches);
+    setMatches(uniqueMatches);
     setDataSource("local");
     setLoading(false);
+  };
+  
+  // Helper function to deduplicate matches
+  const deduplicateMatches = (matches: Match[]): Match[] => {
+    const seenIds = new Set<string>();
+    const seenByExternalId = new Map<string, Match>();
+    const seenByKey = new Map<string, Match>(); // datetime + home + away
+    const unique: Match[] = [];
+    
+    for (const match of matches) {
+      // First check by ID (most reliable)
+      if (match.id && seenIds.has(match.id)) {
+        console.log(`[Deduplication] Skipping duplicate match by ID: ${match.id}`);
+        continue;
+      }
+      if (match.id) seenIds.add(match.id);
+      
+      // Check by externalId (if exists)
+      if (match.externalId) {
+        const existing = seenByExternalId.get(match.externalId);
+        if (existing) {
+          console.log(`[Deduplication] Skipping duplicate match by externalId: ${match.externalId}`);
+          continue;
+        }
+        seenByExternalId.set(match.externalId, match);
+      }
+      
+      // Check by datetime + teams combination (fallback)
+      const key = `${match.datetime}-${match.home}-${match.away}`;
+      const existingByKey = seenByKey.get(key);
+      if (existingByKey) {
+        // Prefer match with more complete data (has goalieId, has events, etc.)
+        const currentHasData = match.goalieId || match.manualStats || match.homeScore !== undefined;
+        const existingHasData = existingByKey.goalieId || existingByKey.manualStats || existingByKey.homeScore !== undefined;
+        
+        if (currentHasData && !existingHasData) {
+          // Replace existing with current (has more data)
+          const index = unique.findIndex(m => m.id === existingByKey.id);
+          if (index >= 0) {
+            unique[index] = match;
+            seenByKey.set(key, match);
+            if (existingByKey.id && match.id !== existingByKey.id) {
+              seenIds.delete(existingByKey.id);
+              seenIds.add(match.id);
+            }
+          }
+          continue;
+        } else {
+          console.log(`[Deduplication] Skipping duplicate match by key: ${key}`);
+          continue;
+        }
+      }
+      seenByKey.set(key, match);
+      
+      unique.push(match);
+    }
+    
+    if (matches.length !== unique.length) {
+      console.log(`[Deduplication] Removed ${matches.length - unique.length} duplicate matches`);
+    }
+    
+    return unique;
   };
 
   useEffect(() => {
