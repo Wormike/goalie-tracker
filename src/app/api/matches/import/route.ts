@@ -330,7 +330,7 @@ export async function POST(request: NextRequest) {
       completed: m.completed,
       seasonId: season,
       venue: m.venue,
-      status: m.completed ? "closed" : "open",
+      status: m.completed ? "completed" : "scheduled",
       manualStats: m.completed ? { shots: 0, saves: 0, goals: 0 } : undefined,
     }));
 

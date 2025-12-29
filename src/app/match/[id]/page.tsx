@@ -289,7 +289,7 @@ export default function MatchPage() {
 
   const toggleMatchStatus = async () => {
     if (!match) return;
-    const newStatus: MatchStatus = match.status === "closed" ? "open" : "closed";
+    const newStatus: MatchStatus = isMatchCompleted(match.status) ? "in_progress" : "completed";
     
     if (dataSource === "supabase") {
       const updated = await updateMatchSupabase(match.id, { status: newStatus });
@@ -300,7 +300,7 @@ export default function MatchPage() {
       const updatedMatch: Match = {
         ...match,
         status: newStatus,
-        completed: newStatus === "closed",
+        completed: newStatus === "completed",
         updatedAt: new Date().toISOString(),
       };
       saveMatchLocal(updatedMatch);
