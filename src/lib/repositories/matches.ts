@@ -98,7 +98,7 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
       goals: db.manual_goals_against || 0,
     } : undefined,
     // Source
-    source: (db.source as MatchSource) || "manual",
+source: db.source || "manual",
     externalId: db.external_id || undefined,
     externalUrl: db.external_url || undefined,
     // Timestamps
