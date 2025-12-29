@@ -26,8 +26,12 @@ export type InputSource = "live" | "manual" | "import";
 // NEW: Event status for tracking edits/deletions
 export type EventStatus = "confirmed" | "edited" | "deleted";
 
-// NEW: Match status (open for recording, closed when finished)
-export type MatchStatus = "open" | "closed";
+// Match status
+// Legacy values: "open" | "closed" (for backward compatibility)
+// New schema values: "scheduled" | "in_progress" | "completed" | "cancelled"
+export type MatchStatus = 
+  | "open" | "closed" // Legacy values
+  | "scheduled" | "in_progress" | "completed" | "cancelled"; // New schema values
 
 export type MatchType = "league" | "friendly" | "tournament" | "cup";
 export type MatchSource = "manual" | "imported" | "ceskyhokej";
@@ -194,9 +198,11 @@ export interface Match {
   datetime: string;
   venue?: string;
   
-  // Status - NEW schema uses: "scheduled" | "in_progress" | "completed" | "cancelled"
-  status?: MatchStatus | "scheduled" | "in_progress" | "completed" | "cancelled";
-  completed?: boolean; // Legacy field, maps to status === "completed"
+  // Status - supports both legacy and new schema values
+  // Legacy: "open" | "closed"
+  // New: "scheduled" | "in_progress" | "completed" | "cancelled"
+  status?: MatchStatus;
+  completed?: boolean; // Legacy field, maps to status === "completed" || status === "closed"
   
   // Scores
   homeScore?: number;

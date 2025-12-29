@@ -162,7 +162,7 @@ export default function NewMatchPage() {
       season: form.seasonId,
       venue: form.venue || undefined,
       type: form.matchType,
-      status: "open" as const,
+      status: "in_progress" as const,
       goalie_id: form.goalieId || undefined,
     };
 
@@ -188,7 +188,7 @@ export default function NewMatchPage() {
       matchType: form.matchType,
       goalieId: form.goalieId || undefined,
       seasonId: form.seasonId,
-      status: "open",
+      status: "in_progress",
       completed: false,
       source: "manual",
       createdAt: new Date().toISOString(),

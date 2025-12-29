@@ -61,9 +61,18 @@ export interface DbMatch {
  * Convert database match to app Match type
  */
 export function dbMatchToAppMatch(db: DbMatch): Match {
-  // Map status: new schema -> legacy
-  const isCompleted = db.status === "completed";
-  const status = db.status === "closed" ? "closed" : (db.status === "open" ? "open" : (isCompleted ? "closed" : "open"));
+  // Map status: new schema -> legacy (for backward compatibility)
+  // New schema: "scheduled" | "in_progress" | "completed" | "cancelled"
+  // Legacy: "open" | "closed"
+  const isCompleted = db.status === "completed" || db.status === "cancelled";
+  let status: MatchStatus;
+  if (db.status === "completed" || db.status === "cancelled") {
+    status = "closed";
+  } else if (db.status === "scheduled") {
+    status = "open"; // Treat scheduled as open for legacy compatibility
+  } else {
+    status = "open"; // "in_progress" and any other -> "open"
+  }
   
   return {
     id: db.id,
@@ -131,15 +140,23 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
   if (match.matchType !== undefined) payload.match_type = match.matchType;
   
   // Map status: legacy -> new schema
+  // Legacy: "open" | "closed"
+  // New schema: "scheduled" | "in_progress" | "completed" | "cancelled"
   if (match.status !== undefined || match.completed !== undefined) {
-    if (match.status === "completed" || match.completed) {
+    if (match.status === "completed" || match.completed || match.status === "closed") {
       payload.status = "completed";
-    } else if (match.status === "in_progress") {
-      payload.status = "in_progress";
     } else if (match.status === "cancelled") {
       payload.status = "cancelled";
-    } else {
+    } else if (match.status === "in_progress") {
+      payload.status = "in_progress";
+    } else if (match.status === "scheduled") {
       payload.status = "scheduled";
+    } else if (match.status === "open") {
+      // Legacy "open" -> assume match is in progress
+      payload.status = "in_progress";
+    } else {
+      // Default: if completed flag is set, use completed, otherwise in_progress
+      payload.status = match.completed ? "completed" : "in_progress";
     }
   }
   

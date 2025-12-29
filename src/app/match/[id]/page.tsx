@@ -160,7 +160,7 @@ export default function MatchPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [match, dataSource, events.length]);
 
-  const isMatchClosed = match?.status === "closed" || match?.completed;
+  const isMatchClosed = match?.status === "closed" || match?.status === "completed" || match?.status === "cancelled" || match?.completed;
 
   const stats = useMemo(() => {
     const filtered = events.filter(

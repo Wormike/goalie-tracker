@@ -223,15 +223,20 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         const goalieId = m.goalieId ? goalieIdMap.get(m.goalieId) || m.goalieId : null;
         
         // Map status: legacy "open"/"closed" -> new "scheduled"/"completed"/"in_progress"
-        let status = "scheduled";
-        if (m.status === "completed" || m.completed) {
+        // Legacy: "open" | "closed"
+        // New: "scheduled" | "in_progress" | "completed" | "cancelled"
+        let status: "scheduled" | "in_progress" | "completed" | "cancelled" = "in_progress";
+        if (m.status === "completed" || m.completed || m.status === "closed") {
           status = "completed";
-        } else if (m.status === "in_progress") {
-          status = "in_progress";
         } else if (m.status === "cancelled") {
           status = "cancelled";
-        } else if (m.status === "closed") {
-          status = "completed";
+        } else if (m.status === "in_progress") {
+          status = "in_progress";
+        } else if (m.status === "scheduled") {
+          status = "scheduled";
+        } else if (m.status === "open") {
+          // Legacy "open" -> assume match is in progress
+          status = "in_progress";
         }
         
         return {
@@ -401,9 +406,18 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
       result.errors.push(`Matches: ${matchesError.message}`);
     } else if (matchesData) {
       matchesData.forEach((m) => {
-        // Map status: new schema -> legacy
-        const isCompleted = m.status === "completed";
-        const status = m.status === "closed" ? "closed" : (m.status === "open" ? "open" : (isCompleted ? "closed" : "open"));
+        // Map status: new schema -> legacy (for backward compatibility)
+        // New: "scheduled" | "in_progress" | "completed" | "cancelled"
+        // Legacy: "open" | "closed"
+        const isCompleted = m.status === "completed" || m.status === "cancelled";
+        let status: MatchStatus;
+        if (m.status === "completed" || m.status === "cancelled") {
+          status = "closed";
+        } else if (m.status === "scheduled") {
+          status = "open"; // Treat scheduled as open for legacy compatibility
+        } else {
+          status = "open"; // "in_progress" and any other -> "open"
+        }
         
         const match: Match = {
           id: m.id,
