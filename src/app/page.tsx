@@ -112,62 +112,74 @@ export default function HomePage() {
   };
   
   // Helper function to deduplicate matches
+  // Only deduplicate by ID and externalId - do NOT deduplicate by datetime+teams
+  // as this could remove legitimate matches (e.g., same teams playing on same date but different matches)
   const deduplicateMatches = (matches: Match[]): Match[] => {
     const seenIds = new Set<string>();
     const seenByExternalId = new Map<string, Match>();
-    const seenByKey = new Map<string, Match>(); // datetime + home + away
     const unique: Match[] = [];
+    const warnings: string[] = [];
     
     for (const match of matches) {
       // First check by ID (most reliable)
       if (match.id && seenIds.has(match.id)) {
         console.log(`[Deduplication] Skipping duplicate match by ID: ${match.id}`);
+        warnings.push(`Duplicate by ID: ${match.id} (${match.home} vs ${match.away} on ${match.datetime})`);
         continue;
       }
       if (match.id) seenIds.add(match.id);
       
-      // Check by externalId (if exists)
+      // Check by externalId (if exists) - this is for imported matches
       if (match.externalId) {
         const existing = seenByExternalId.get(match.externalId);
         if (existing) {
-          console.log(`[Deduplication] Skipping duplicate match by externalId: ${match.externalId}`);
-          continue;
+          // If same externalId but different ID, prefer the one with more data
+          const currentHasData = match.goalieId || match.manualStats || match.homeScore !== undefined;
+          const existingHasData = existing.goalieId || existing.manualStats || existing.homeScore !== undefined;
+          
+          if (currentHasData && !existingHasData) {
+            // Replace existing with current (has more data)
+            const index = unique.findIndex(m => m.id === existing.id);
+            if (index >= 0) {
+              unique[index] = match;
+              seenByExternalId.set(match.externalId, match);
+              if (existing.id && match.id !== existing.id) {
+                seenIds.delete(existing.id);
+                seenIds.add(match.id);
+              }
+              warnings.push(`Updated match with externalId ${match.externalId} (kept version with more data)`);
+            }
+            continue;
+          } else {
+            console.log(`[Deduplication] Skipping duplicate match by externalId: ${match.externalId}`);
+            warnings.push(`Duplicate by externalId: ${match.externalId} (${match.home} vs ${match.away})`);
+            continue;
+          }
         }
         seenByExternalId.set(match.externalId, match);
       }
       
-      // Check by datetime + teams combination (fallback)
+      // Do NOT deduplicate by datetime + teams - this is too aggressive and could remove legitimate matches
+      // Only log a warning if we see potential duplicates
       const key = `${match.datetime}-${match.home}-${match.away}`;
-      const existingByKey = seenByKey.get(key);
-      if (existingByKey) {
-        // Prefer match with more complete data (has goalieId, has events, etc.)
-        const currentHasData = match.goalieId || match.manualStats || match.homeScore !== undefined;
-        const existingHasData = existingByKey.goalieId || existingByKey.manualStats || existingByKey.homeScore !== undefined;
-        
-        if (currentHasData && !existingHasData) {
-          // Replace existing with current (has more data)
-          const index = unique.findIndex(m => m.id === existingByKey.id);
-          if (index >= 0) {
-            unique[index] = match;
-            seenByKey.set(key, match);
-            if (existingByKey.id && match.id !== existingByKey.id) {
-              seenIds.delete(existingByKey.id);
-              seenIds.add(match.id);
-            }
-          }
-          continue;
-        } else {
-          console.log(`[Deduplication] Skipping duplicate match by key: ${key}`);
-          continue;
-        }
+      const existingMatchesWithSameKey = unique.filter(m => 
+        `${m.datetime}-${m.home}-${m.away}` === key && m.id !== match.id && !m.externalId && !match.externalId
+      );
+      
+      if (existingMatchesWithSameKey.length > 0) {
+        warnings.push(`Warning: Multiple matches with same datetime+teams: ${key} (IDs: ${existingMatchesWithSameKey.map(m => m.id).join(', ')}, ${match.id})`);
+        // But we still include it - let user decide
       }
-      seenByKey.set(key, match);
       
       unique.push(match);
     }
     
+    if (warnings.length > 0) {
+      console.log(`[Deduplication] Warnings:`, warnings);
+    }
+    
     if (matches.length !== unique.length) {
-      console.log(`[Deduplication] Removed ${matches.length - unique.length} duplicate matches`);
+      console.log(`[Deduplication] Removed ${matches.length - unique.length} duplicate matches (by ID or externalId only)`);
     }
     
     return unique;
