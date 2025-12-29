@@ -51,7 +51,7 @@ export function dbEventToAppEvent(db: DbGoalieEvent): GoalieEvent {
   };
 
   // Map situation: "pp"/"sh" -> legacy "powerplay"/"shorthanded" for compatibility
-  let situation = db.situation || "even";
+  let situation: string = db.situation || "even";
   if (situation === "pp") situation = "powerplay" as any;
   if (situation === "sh") situation = "shorthanded" as any;
 
@@ -272,7 +272,7 @@ export async function updateEvent(
     if (payload.save_type !== undefined) updatePayload.save_type = payload.save_type || null;
     if (payload.goal_type !== undefined) updatePayload.goal_type = payload.goal_type || null;
     if (payload.situation !== undefined) {
-      let situation = payload.situation;
+      let situation: string = payload.situation;
       if (situation === "powerplay") situation = "pp" as any;
       if (situation === "shorthanded") situation = "sh" as any;
       updatePayload.situation = situation as "even" | "pp" | "sh" | "4v4" | "3v3";
