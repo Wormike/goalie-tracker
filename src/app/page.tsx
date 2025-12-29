@@ -192,8 +192,49 @@ export default function HomePage() {
       const data = await response.json();
 
       if (data.success && data.matches) {
-        // Save all imported matches to localStorage
-        data.matches.forEach((m: Match) => saveMatch(m));
+        // Check for duplicates before saving
+        const existingMatches = getMatchesLocal();
+        const existingByExternalId = new Map(
+          existingMatches.filter(m => m.externalId).map(m => [m.externalId!, m])
+        );
+        const existingByKey = new Map(
+          existingMatches.map(m => {
+            // Create unique key from datetime + home + away
+            const key = `${m.datetime}-${m.home}-${m.away}`;
+            return [key, m];
+          })
+        );
+
+        let savedCount = 0;
+        let skippedCount = 0;
+
+        data.matches.forEach((m: Match) => {
+          // Check by externalId first (most reliable)
+          if (m.externalId && existingByExternalId.has(m.externalId)) {
+            skippedCount++;
+            return;
+          }
+
+          // Check by datetime + teams combination
+          const key = `${m.datetime}-${m.home}-${m.away}`;
+          if (existingByKey.has(key)) {
+            skippedCount++;
+            return;
+          }
+
+          // No duplicate found, save the match
+          saveMatch(m);
+          savedCount++;
+          
+          // Add to tracking maps to avoid duplicates within the same import batch
+          if (m.externalId) {
+            existingByExternalId.set(m.externalId, m);
+          }
+          existingByKey.set(key, m);
+        });
+
+        console.log(`[Import] Saved ${savedCount} new matches, skipped ${skippedCount} duplicates`);
+
         // Reload matches (prefer Supabase if configured)
         await loadMatches();
 

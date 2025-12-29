@@ -67,13 +67,20 @@ export function EventListModal({
   const handleDelete = (event: GoalieEvent) => {
     if (confirm("Smazat tuto událost?")) {
       softDeleteEvent(event.id);
-      onEventsChange();
+      // Force immediate update by calling onEventsChange asynchronously
+      // This ensures storage is updated before we reload
+      setTimeout(() => {
+        onEventsChange();
+      }, 50);
     }
   };
 
   const handleRestore = (event: GoalieEvent) => {
     restoreEvent(event.id);
-    onEventsChange();
+    // Force immediate update
+    setTimeout(() => {
+      onEventsChange();
+    }, 50);
   };
 
   const handleSaveEdit = () => {
@@ -81,7 +88,10 @@ export function EventListModal({
     saveEvent({ ...editingEvent, status: "edited", updatedAt: new Date().toISOString() });
     setEditingEvent(null);
     setEditTab("basic");
-    onEventsChange();
+    // Force immediate update
+    setTimeout(() => {
+      onEventsChange();
+    }, 50);
   };
 
   const handleShotPositionChange = (position: ShotPosition) => {

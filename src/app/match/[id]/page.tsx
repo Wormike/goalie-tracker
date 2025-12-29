@@ -492,13 +492,22 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
         onClose={() => setShowEventList(false)}
         events={allEvents}
         onEventsChange={async () => {
+          if (!match) return;
+          
           if (dataSource === "supabase") {
             const supabaseEvents = await getEventsForMatchSupabase(match.id);
             setEvents(supabaseEvents);
             setAllEvents(supabaseEvents);
           } else {
-            setEvents(getEventsByMatchLocal(match.id));
-            setAllEvents(getAllEventsByMatch(match.id));
+            // Force reload from storage to ensure we get the latest data
+            const reloadedEvents = getEventsByMatchLocal(match.id);
+            const reloadedAllEvents = getAllEventsByMatch(match.id);
+            console.log('[MatchPage] Events changed, reloaded:', {
+              eventsCount: reloadedEvents.length,
+              allEventsCount: reloadedAllEvents.length,
+            });
+            setEvents(reloadedEvents);
+            setAllEvents(reloadedAllEvents);
           }
         }}
         matchClosed={isMatchClosed}
