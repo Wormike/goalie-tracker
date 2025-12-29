@@ -19,7 +19,7 @@ export function isUuid(value?: string | null): boolean {
 
 export interface DbMatch {
   id: string;
-  match_type: "friendly" | "league" | "tournament" | "playoff";
+  match_type: "friendly" | "league" | "tournament" | "playoff" | "cup";
   status: "scheduled" | "in_progress" | "completed" | "cancelled";
   home_team_id: string | null;
   home_team_name: string | null;
@@ -243,7 +243,7 @@ export interface CreateMatchPayload {
   competition_id?: string;
   season_id?: string;
   venue?: string;
-  match_type?: "friendly" | "league" | "tournament" | "playoff";
+  match_type?: "friendly" | "league" | "tournament" | "playoff" | "cup";
   status?: MatchStatus; // Použij nový typ
   goalie_id?: string;
   home_score?: number;

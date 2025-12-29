@@ -161,7 +161,7 @@ export default function NewMatchPage() {
       competition_id: form.competitionId || undefined,
       season_id: form.seasonId,
       venue: form.venue || undefined,
-      match_type: form.matchType,
+      match_type: form.matchType as "friendly" | "league" | "tournament" | "playoff" | "cup",
       status: "in_progress" as MatchStatus,
       goalie_id: form.goalieId || undefined,
     };
