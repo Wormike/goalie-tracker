@@ -168,7 +168,7 @@ export default function MatchPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [match, dataSource, events.length]);
 
-const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "cancelled" || match?.completed;
+  const isMatchClosed = match ? (isMatchCompleted(match.status) || match.status === "cancelled" || match.completed) : false;
 
   const stats = useMemo(() => {
     const filtered = events.filter(
@@ -261,30 +261,42 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
     }
   };
 
-  const handleGoalieChange = async (goalieId: string) => {
+  const handleGoalieChange = async (goalieId: string | null) => {
     if (!match) return;
+    
+    // If goalieId is empty string, convert to null to allow removal
+    const finalGoalieId = goalieId && goalieId.trim() !== "" ? goalieId : undefined;
     
     if (dataSource === "supabase") {
       // Update in Supabase
-      const updated = await updateMatchSupabase(match.id, { goalie_id: goalieId || undefined });
+      const updated = await updateMatchSupabase(match.id, { goalie_id: finalGoalieId });
       if (updated) {
         setMatch(updated);
+        // Reload goalie state from updated match
+        if (updated.goalieId) {
+          setGoalie(getGoalieById(updated.goalieId) || null);
+        } else {
+          setGoalie(null);
+        }
       }
     } else {
-      // Update in localStorage
-      const updatedMatch = { ...match, goalieId };
+      // Update in localStorage - ensure goalieId persists
+      const updatedMatch = { ...match, goalieId: finalGoalieId };
       saveMatchLocal(updatedMatch);
       setMatch(updatedMatch);
-    }
-    
-    setGoalie(goalieId ? getGoalieById(goalieId) || null : null);
+      
+      // Update goalie state
+      setGoalie(finalGoalieId ? getGoalieById(finalGoalieId) || null : null);
 
-    // Update all events with new goalie ID (localStorage only for now)
-    const updatedEvents = events.map((e) => ({ ...e, goalieId }));
-    const allEventsStorage = getEvents();
-    const otherEvents = allEventsStorage.filter((e) => e.matchId !== match.id);
-    saveEvents([...otherEvents, ...updatedEvents]);
-    setEvents(updatedEvents);
+      // Update all events with new goalie ID if goalie is assigned
+      if (finalGoalieId) {
+        const updatedEvents = events.map((e) => ({ ...e, goalieId: finalGoalieId }));
+        const allEventsStorage = getEvents();
+        const otherEvents = allEventsStorage.filter((e) => e.matchId !== match.id);
+        saveEvents([...otherEvents, ...updatedEvents]);
+        setEvents(updatedEvents);
+      }
+    }
 
     setShowGoalieSelect(false);
   };
@@ -451,6 +463,18 @@ const isMatchClosed = isMatchCompleted(match?.status) || match?.status === "canc
               </div>
             ) : (
               <div className="space-y-2">
+                {goalie && (
+                  <button
+                    onClick={() => {
+                      if (confirm("Opravdu odebrat brankáře z tohoto zápasu?")) {
+                        handleGoalieChange(null);
+                      }
+                    }}
+                    className="w-full rounded-lg border border-accentDanger/50 bg-accentDanger/10 px-3 py-2 text-left text-sm text-accentDanger"
+                  >
+                    ✕ Odebrat {goalie.firstName} {goalie.lastName}
+                  </button>
+                )}
                 {goalies.map((g) => (
                   <button
                     key={g.id}

@@ -277,7 +277,15 @@ export function saveMatch(match: Match): void {
   const now = new Date().toISOString();
   
   if (index >= 0) {
-    matches[index] = { ...match, updatedAt: now };
+    // Preserve goalieId if it exists in the existing match and is not explicitly being removed
+    const existingMatch = matches[index];
+    const preservedMatch = {
+      ...match,
+      // Preserve goalieId from existing match if new match doesn't have it explicitly set
+      goalieId: match.goalieId !== undefined ? match.goalieId : existingMatch.goalieId,
+      updatedAt: now,
+    };
+    matches[index] = preservedMatch;
   } else {
     matches.push({ ...match, createdAt: match.createdAt || now });
   }

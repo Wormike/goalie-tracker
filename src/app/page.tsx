@@ -9,6 +9,7 @@ import {
   getGoalieById,
   saveMatch,
   deleteMatch as deleteMatchLocal,
+  getEventsByMatch as getEventsByMatchLocal,
 } from "@/lib/storage";
 import {
   getMatches as getMatchesSupabase,
@@ -740,6 +741,12 @@ export default function HomePage() {
                     const goalie = m.goalieId
                       ? getGoalieById(m.goalieId)
                       : null;
+                    const matchEvents = getEventsByMatchLocal(m.id);
+                    const hasEvents = matchEvents.length > 0;
+                    const goalieInitials = goalie 
+                      ? `${goalie.firstName.charAt(0).toUpperCase()}${goalie.lastName.charAt(0).toUpperCase()}`
+                      : null;
+                    
                     return (
                       <div
                         key={m.id}
@@ -785,7 +792,19 @@ export default function HomePage() {
                               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-accentPrimary/20 text-[10px] font-bold text-accentPrimary">
                                 {goalie.jerseyNumber || goalie.firstName[0]}
                               </span>
-                              {goalie.firstName} {goalie.lastName}
+                              <span>
+                                {goalie.firstName} {goalie.lastName}
+                                {goalieInitials && (
+                                  <span className="ml-1.5 rounded bg-accentPrimary/20 px-1.5 py-0.5 text-[10px] font-medium text-accentPrimary">
+                                    {goalieInitials}
+                                  </span>
+                                )}
+                              </span>
+                              {hasEvents && (
+                                <span className="ml-2 rounded bg-accentSuccess/20 px-1.5 py-0.5 text-[10px] font-medium text-accentSuccess">
+                                  📊 {matchEvents.length}
+                                </span>
+                              )}
                             </div>
                           )}
                           <div className="mt-3 text-xs text-accentPrimary">
@@ -820,6 +839,13 @@ export default function HomePage() {
                     : null;
                   const hasStats = m.manualStats && m.manualStats.shots > 0;
                   const hasScore = m.homeScore !== undefined && m.awayScore !== undefined;
+                  const matchEvents = getEventsByMatchLocal(m.id);
+                  const hasEvents = matchEvents.length > 0;
+                  
+                  // Generate initials from first and last name
+                  const goalieInitials = goalie 
+                    ? `${goalie.firstName.charAt(0).toUpperCase()}${goalie.lastName.charAt(0).toUpperCase()}`
+                    : null;
 
                   return (
                     <div
@@ -849,12 +875,25 @@ export default function HomePage() {
                             </div>
                           )}
                           {goalie && (
-                            <div className="mt-1 text-xs text-slate-400">
-                              🥅 {goalie.firstName} {goalie.lastName}
+                            <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
+                              <span>🥅</span>
+                              <span>
+                                {goalie.firstName} {goalie.lastName}
+                                {goalieInitials && (
+                                  <span className="ml-1.5 rounded bg-accentPrimary/20 px-1.5 py-0.5 text-[10px] font-medium text-accentPrimary">
+                                    {goalieInitials}
+                                  </span>
+                                )}
+                              </span>
                               {hasStats && (
                                 <span className="ml-2 text-accentPrimary">
                                   {m.manualStats!.saves}/{m.manualStats!.shots}{" "}
                                   ({((m.manualStats!.saves / m.manualStats!.shots) * 100).toFixed(1)}%)
+                                </span>
+                              )}
+                              {hasEvents && !hasStats && (
+                                <span className="ml-2 rounded bg-accentSuccess/20 px-1.5 py-0.5 text-[10px] font-medium text-accentSuccess">
+                                  📊 {matchEvents.length} událostí
                                 </span>
                               )}
                             </div>
