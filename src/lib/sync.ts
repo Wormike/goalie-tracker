@@ -1,5 +1,4 @@
 /**
-import type { MatchStatus } from "./types";
  * Data Sync - Synchronizace mezi localStorage a Supabase
  * 
  * Umožňuje:
@@ -10,7 +9,7 @@ import type { MatchStatus } from "./types";
 
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import * as storage from "./storage";
-import type { Goalie, Match, GoalieEvent, Competition, Season, Team } from "./types";
+import type { Goalie, Match, GoalieEvent, Competition, Season, Team, MatchStatus } from "./types";
 import { v4 as uuidv4 } from "uuid";
 import { normalizeMatchStatus } from "./utils/matchStatus";
 
