@@ -25,7 +25,7 @@ import {
   getAllEventsByMatch,
   saveEvent as saveEventLocal,
   getGoalieById,
-  getGoalies,
+  getGoalies as getGoaliesLocal,
   saveMatch as saveMatchLocal,
   saveEvents,
   getEvents,
@@ -34,6 +34,9 @@ import {
   getMatchById as getMatchByIdSupabase,
   updateMatch as updateMatchSupabase,
 } from "@/lib/repositories/matches";
+import {
+  getGoalies as getGoaliesSupabase,
+} from "@/lib/repositories/goalies";
 import {
   getEventsForMatch as getEventsForMatchSupabase,
   createEvent as createEventSupabase,
@@ -130,10 +133,81 @@ export default function MatchPage() {
     setLoading(false);
   };
 
+  // Load goalies function - try Supabase first, fall back to localStorage
+  const loadGoalies = async () => {
+    let loadedGoalies: Goalie[] = [];
+    
+    if (isSupabaseConfigured()) {
+      try {
+        const supabaseGoalies = await getGoaliesSupabase();
+        if (supabaseGoalies.length > 0) {
+          loadedGoalies = supabaseGoalies;
+          console.log('[MatchPage] Loaded goalies from Supabase:', loadedGoalies.length);
+        }
+      } catch (err) {
+        console.error("[MatchPage] Failed to load goalies from Supabase:", err);
+      }
+    }
+    
+    // Fallback to localStorage if Supabase failed or returned no goalies
+    if (loadedGoalies.length === 0) {
+      loadedGoalies = getGoaliesLocal();
+      console.log('[MatchPage] Loaded goalies from localStorage:', loadedGoalies.length);
+    }
+    
+    setGoalies(loadedGoalies);
+    
+    // Update current goalie if match has goalieId
+    if (match?.goalieId) {
+      const foundGoalie = loadedGoalies.find(g => g.id === match.goalieId);
+      if (foundGoalie) {
+        setGoalie(foundGoalie);
+      } else {
+        // Try to get goalie by ID from storage/repository
+        const goalieById = getGoalieById(match.goalieId);
+        if (goalieById) {
+          setGoalie(goalieById);
+        } else {
+          // Goalie not found - clear selection
+          setGoalie(null);
+        }
+      }
+    }
+  };
+
   useEffect(() => {
-    loadMatchData(params.id);
-    setGoalies(getGoalies());
+    const initData = async () => {
+      await loadMatchData(params.id);
+      await loadGoalies();
+    };
+    initData();
   }, [params.id]);
+
+  // Reload goalies when page becomes visible (e.g., after creating goalie on another page)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadGoalies();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // Reload goalies when goalie selection modal opens
+  useEffect(() => {
+    if (showGoalieSelect) {
+      loadGoalies();
+    }
+  }, [showGoalieSelect]);
+
+  // Update goalie when match changes (e.g., after loading)
+  useEffect(() => {
+    if (match?.goalieId) {
+      loadGoalies();
+    }
+  }, [match?.goalieId]);
 
   // Auto-refresh events when match changes (for local storage mode)
   useEffect(() => {
@@ -272,9 +346,15 @@ export default function MatchPage() {
       const updated = await updateMatchSupabase(match.id, { goalie_id: finalGoalieId });
       if (updated) {
         setMatch(updated);
-        // Reload goalie state from updated match
+        // Reload goalie state from updated match - try to find in current goalies list first
         if (updated.goalieId) {
-          setGoalie(getGoalieById(updated.goalieId) || null);
+          const foundGoalie = goalies.find(g => g.id === updated.goalieId);
+          if (foundGoalie) {
+            setGoalie(foundGoalie);
+          } else {
+            // Fallback to getGoalieById (localStorage)
+            setGoalie(getGoalieById(updated.goalieId) || null);
+          }
         } else {
           setGoalie(null);
         }
@@ -285,8 +365,18 @@ export default function MatchPage() {
       saveMatchLocal(updatedMatch);
       setMatch(updatedMatch);
       
-      // Update goalie state
-      setGoalie(finalGoalieId ? getGoalieById(finalGoalieId) || null : null);
+      // Update goalie state - try to find in current goalies list first
+      if (finalGoalieId) {
+        const foundGoalie = goalies.find(g => g.id === finalGoalieId);
+        if (foundGoalie) {
+          setGoalie(foundGoalie);
+        } else {
+          // Fallback to getGoalieById (localStorage)
+          setGoalie(getGoalieById(finalGoalieId) || null);
+        }
+      } else {
+        setGoalie(null);
+      }
 
       // Update all events with new goalie ID if goalie is assigned
       if (finalGoalieId) {
