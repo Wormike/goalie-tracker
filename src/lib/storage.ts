@@ -63,7 +63,7 @@ const DEFAULT_TEAM: Team = {
   id: "slovan-usti",
   name: "HC Slovan Ústí nad Labem",
   shortName: "Slovan Ústí",
-  clubExternalId: "228", // ID on ustecky.ceskyhokej.cz
+  externalId: "228",, // ID on ustecky.ceskyhokej.cz
   createdAt: new Date().toISOString(),
 };
 
