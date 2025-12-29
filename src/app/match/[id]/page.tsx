@@ -94,25 +94,19 @@ export default function MatchPage() {
   const loadMatchData = async (matchId: string) => {
     setLoading(true);
     
+    let loadedMatch: Match | null = null;
+    let loadedEvents: GoalieEvent[] = [];
+    
     if (isSupabaseConfigured() && isUuid(matchId)) {
       try {
         // Try loading from Supabase
         const supabaseMatch = await getMatchByIdSupabase(matchId);
         if (supabaseMatch) {
-          setMatch(supabaseMatch);
+          loadedMatch = supabaseMatch;
           setDataSource("supabase");
           
           // Load events from Supabase
-          const supabaseEvents = await getEventsForMatchSupabase(matchId);
-          setEvents(supabaseEvents);
-          setAllEvents(supabaseEvents);
-          
-          if (supabaseMatch.goalieId) {
-            setGoalie(getGoalieById(supabaseMatch.goalieId) || null);
-          }
-          
-          setLoading(false);
-          return;
+          loadedEvents = await getEventsForMatchSupabase(matchId);
         }
       } catch (err) {
         console.error("[MatchPage] Failed to load from Supabase:", err);
@@ -120,16 +114,61 @@ export default function MatchPage() {
     }
     
     // Fallback to localStorage
-    const localMatch = getMatchByIdLocal(matchId);
-    if (localMatch) {
-      setMatch(localMatch);
-      setDataSource("local");
-      setEvents(getEventsByMatchLocal(localMatch.id));
-      setAllEvents(getAllEventsByMatch(localMatch.id));
-      if (localMatch.goalieId) {
-        setGoalie(getGoalieById(localMatch.goalieId) || null);
+    if (!loadedMatch) {
+      const localMatch = getMatchByIdLocal(matchId);
+      if (localMatch) {
+        loadedMatch = localMatch;
+        setDataSource("local");
+        loadedEvents = getEventsByMatchLocal(localMatch.id);
       }
     }
+    
+    if (loadedMatch) {
+      // Auto-revert logic: If match is completed but has no goalie and no events,
+      // automatically revert it to upcoming with original datetime
+      const hasGoalie = !!loadedMatch.goalieId;
+      const hasEvents = loadedEvents.length > 0;
+      const isCompleted = isMatchCompleted(loadedMatch.status) || loadedMatch.completed;
+      
+      if (isCompleted && !hasGoalie && !hasEvents) {
+        // Match is completed but empty - revert to upcoming
+        const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+        const metadata = matchMetadata[loadedMatch.id];
+        const originalDatetime = metadata?.originalDatetime || loadedMatch.datetime;
+        
+        const revertedMatch: Match = {
+          ...loadedMatch,
+          status: "scheduled" as MatchStatus,
+          completed: false,
+          datetime: originalDatetime,
+        };
+        
+        if (dataSource === "supabase") {
+          const updated = await updateMatchSupabase(loadedMatch.id, {
+            status: "scheduled",
+            completed: false,
+            datetime: originalDatetime,
+          });
+          if (updated) {
+            loadedMatch = updated;
+          }
+        } else {
+          saveMatchLocal(revertedMatch);
+          loadedMatch = revertedMatch;
+        }
+        
+        console.log('[MatchPage] Auto-reverted empty completed match to upcoming');
+      }
+      
+      setMatch(loadedMatch);
+      setEvents(loadedEvents);
+      setAllEvents(getAllEventsByMatch ? getAllEventsByMatch(loadedMatch.id) : loadedEvents);
+      
+      if (loadedMatch.goalieId) {
+        setGoalie(getGoalieById(loadedMatch.goalieId) || null);
+      }
+    }
+    
     setLoading(false);
   };
 
@@ -208,6 +247,68 @@ export default function MatchPage() {
       loadGoalies();
     }
   }, [match?.goalieId]);
+
+  // Auto-revert completed match to upcoming if goalie and events are removed
+  useEffect(() => {
+    if (!match) return;
+    
+    const isCompleted = isMatchCompleted(match.status) || match.completed;
+    const hasGoalie = !!match.goalieId;
+    const hasEvents = events.length > 0;
+    
+    // If match is completed but has no goalie and no events, auto-revert to upcoming
+    if (isCompleted && !hasGoalie && !hasEvents) {
+      const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+      const metadata = matchMetadata[match.id];
+      
+      // Check if we have originalDatetime stored (meaning match was closed and moved to today)
+      if (metadata?.originalDatetime) {
+        const originalDatetime = metadata.originalDatetime;
+        const matchDatetime = new Date(match.datetime).getTime();
+        const originalDatetimeTime = new Date(originalDatetime).getTime();
+        const today = new Date().getTime();
+        const isToday = Math.abs(matchDatetime - today) < 24 * 60 * 60 * 1000; // Within 24 hours of today
+        
+        // Only revert if datetime is today (moved when closed) and different from original
+        if (isToday && originalDatetimeTime !== matchDatetime) {
+          console.log('[MatchPage] Auto-reverting empty completed match to upcoming with original datetime');
+          
+          const revertedMatch: Match = {
+            ...match,
+            status: "scheduled" as MatchStatus,
+            completed: false,
+            datetime: originalDatetime,
+          };
+          
+          const revertMatch = async () => {
+            if (dataSource === "supabase") {
+              const updated = await updateMatchSupabase(match.id, {
+                status: "scheduled",
+                datetime: originalDatetime,
+              });
+              if (updated) {
+                setMatch(updated);
+                // Navigate back to home after auto-revert
+                setTimeout(() => router.push('/'), 500);
+              }
+            } else {
+              saveMatchLocal(revertedMatch);
+              setMatch(revertedMatch);
+              // Navigate back to home after auto-revert
+              setTimeout(() => router.push('/'), 500);
+            }
+            
+            // Trigger sync
+            syncNow().catch(err => {
+              console.error('[MatchPage] Background sync failed:', err);
+            });
+          };
+          
+          revertMatch();
+        }
+      }
+    }
+  }, [match?.status, match?.completed, match?.goalieId, events.length, match?.id, match?.datetime, dataSource]);
 
   // Auto-refresh events when match changes (for local storage mode)
   useEffect(() => {
@@ -1014,14 +1115,17 @@ export default function MatchPage() {
                     const todayISO = now.toISOString();
                     const originalDatetime = match.datetime; // Save original datetime
                     
+                    // Store original datetime in localStorage separately for reopening
+                    const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+                    matchMetadata[match.id] = { originalDatetime };
+                    localStorage.setItem('match-metadata', JSON.stringify(matchMetadata));
+                    
                     // Save original datetime to a metadata field (we'll use a custom field in match)
                     const updatedMatch: Match = {
                       ...match,
                       status: "completed" as MatchStatus,
                       completed: true,
                       datetime: todayISO, // Move to today
-                      // Store original datetime in a way we can retrieve it
-                      // We'll use a custom approach: store in match metadata or use a separate storage
                     };
                     
                     if (dataSource === "supabase") {
@@ -1033,14 +1137,14 @@ export default function MatchPage() {
                         setMatch(updated);
                       }
                     } else {
-                      // Store original datetime in localStorage separately for reopening
-                      const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
-                      matchMetadata[match.id] = { originalDatetime };
-                      localStorage.setItem('match-metadata', JSON.stringify(matchMetadata));
-                      
                       saveMatchLocal(updatedMatch);
                       setMatch(updatedMatch);
                     }
+                    
+                    // Trigger sync to Supabase (background)
+                    syncNow().catch(err => {
+                      console.error('[MatchPage] Background sync failed:', err);
+                    });
                     
                     // Navigate back to home
                     router.push('/');
@@ -1054,26 +1158,33 @@ export default function MatchPage() {
           )}
           
           {isMatchClosed && (
-            <div className="border-t border-borderSoft bg-bgSurfaceSoft/50 px-4 py-2">
+            <div className="border-t border-borderSoft bg-bgSurfaceSoft/50 px-4 py-2 space-y-2">
               <button
                 onClick={async () => {
                   if (!match) return;
+                  
+                  const hasGoalie = !!match.goalieId;
+                  const hasEvents = events.length > 0;
                   
                   // Restore original datetime if available
                   const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
                   const metadata = matchMetadata[match.id];
                   const originalDatetime = metadata?.originalDatetime || match.datetime;
                   
+                  // If match has no goalie and no events, revert to upcoming (scheduled)
+                  // Otherwise just reopen it (in_progress)
+                  const newStatus: MatchStatus = (!hasGoalie && !hasEvents) ? "scheduled" : "in_progress";
+                  
                   const updatedMatch: Match = {
                     ...match,
-                    status: "in_progress" as MatchStatus,
+                    status: newStatus,
                     completed: false,
-                    datetime: originalDatetime, // Restore original datetime
+                    datetime: originalDatetime, // Always restore original datetime
                   };
                   
                   if (dataSource === "supabase") {
                     const updated = await updateMatchSupabase(match.id, {
-                      status: "in_progress",
+                      status: newStatus,
                       datetime: originalDatetime,
                     });
                     if (updated) {
@@ -1084,13 +1195,26 @@ export default function MatchPage() {
                     setMatch(updatedMatch);
                   }
                   
+                  // Trigger sync to Supabase (background)
+                  syncNow().catch(err => {
+                    console.error('[MatchPage] Background sync failed:', err);
+                  });
+                  
                   // Navigate back to home
                   router.push('/');
                 }}
                 className="w-full rounded-lg bg-accentSuccess/20 py-2 text-xs font-medium text-accentSuccess"
               >
                 ↻ Znovuotevřít zápas
+                {(!match.goalieId && events.length === 0) && " (vrátit mezi nadcházející)"}
               </button>
+              
+              {/* Info about auto-revert */}
+              {!match.goalieId && events.length === 0 && (
+                <p className="text-center text-[10px] text-slate-500">
+                  Zápas bez brankáře a událostí bude automaticky vrácen mezi nadcházející s původním datem
+                </p>
+              )}
             </div>
           )}
         </>
