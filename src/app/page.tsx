@@ -329,11 +329,11 @@ export default function HomePage() {
                        compNameNormalized.includes(categoryNormalized) ||
                        categoryNormalized === compNameNormalized;
     
-        // Match by category field if available
-        const matchesCategory = competition.category ? 
-                               (categoryNormalized === competition.category.toLowerCase().trim()) : false;
-        
-        return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
+    // Match by category field if available
+    const matchesCategory: boolean = competition.category ? 
+                                     (categoryNormalized === competition.category.toLowerCase().trim()) : false;
+    
+    return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
   };
 
   // Filter matches by active competition first (if set), then by category
