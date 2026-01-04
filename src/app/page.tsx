@@ -212,13 +212,24 @@ export default function HomePage() {
       }
       // If no competitionId on match, try to match by name or category
       // This handles legacy matches that don't have competitionId set
-      if (!m.competitionId) {
-        // Match by competition name or category if they match
-        const matchesName = m.category && activeCompetition.name && 
-                           (m.category.includes(activeCompetition.name) || 
-                            activeCompetition.name.includes(m.category));
-        const matchesCategory = m.category && activeCompetition.category && 
-                               m.category === activeCompetition.category;
+      if (!m.competitionId && m.category) {
+        // Normalize strings for comparison
+        const categoryLower = m.category.toLowerCase().trim();
+        const compNameLower = activeCompetition.name.toLowerCase().trim();
+        
+        // Match by exact name match
+        if (categoryLower === compNameLower) {
+          return true;
+        }
+        
+        // Match by substring (category contains competition name or vice versa)
+        const matchesName = categoryLower.includes(compNameLower) || 
+                           compNameLower.includes(categoryLower);
+        
+        // Match by category field if available
+        const matchesCategory = activeCompetition.category && 
+                               categoryLower === activeCompetition.category.toLowerCase().trim();
+        
         if (matchesName || matchesCategory) {
           return true;
         }
@@ -340,15 +351,27 @@ export default function HomePage() {
             return;
           }
 
+          // Assign competitionId if activeCompetition is set and match doesn't have one
+          let matchToSave = { ...m };
+          if (!matchToSave.competitionId && activeCompetition) {
+            // Try to match by category name or activeCompetition name
+            const categoryMatches = m.category && activeCompetition.name && 
+                                   (m.category.toLowerCase().includes(activeCompetition.name.toLowerCase()) ||
+                                    activeCompetition.name.toLowerCase().includes(m.category.toLowerCase()));
+            if (categoryMatches || m.category === activeCompetition.name) {
+              matchToSave.competitionId = activeCompetition.id;
+            }
+          }
+
           // No duplicate found, save the match
-          saveMatch(m);
+          saveMatch(matchToSave);
           savedCount++;
           
           // Add to tracking maps to avoid duplicates within the same import batch
-          if (m.externalId) {
-            existingByExternalId.set(m.externalId, m);
+          if (matchToSave.externalId) {
+            existingByExternalId.set(matchToSave.externalId, matchToSave);
           }
-          existingByKey.set(key, m);
+          existingByKey.set(key, matchToSave);
         });
 
         console.log(`[Import] Saved ${savedCount} new matches, skipped ${skippedCount} duplicates`);

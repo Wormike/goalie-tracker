@@ -31,7 +31,9 @@ export default function GoalieDetailPage() {
       setGoalie(g);
       const allMatches = getMatches().filter((m) => m.goalieId === params.id);
       setMatches(allMatches);
-      setEvents(getEvents().filter((e) => e.goalieId === params.id));
+      // Load all events for this goalie - calculateGoalieStats will filter by matches
+      const allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
+      setEvents(allEvents);
       setSeasons(getSeasons());
     }
   }, [params.id]);
@@ -44,9 +46,11 @@ export default function GoalieDetailPage() {
     );
   }
 
-  // Get competition ID from goalie if available, or filter by active competition
+  // Get competition ID from goalie if available, otherwise don't filter by competition
+  // This allows stats to show all matches/events regardless of competition
   const competitionId = goalie.competitionId || undefined;
   
+  // Calculate stats with competition filter if goalie has competitionId
   const stats = calculateGoalieStats(
     goalie.id,
     selectedSeason === "all" ? undefined : selectedSeason,
@@ -59,14 +63,17 @@ export default function GoalieDetailPage() {
       ? matches
       : matches.filter((m) => m.seasonId === selectedSeason);
 
-  // Filter events by match or season
+  // Filter events by match or season - use matchIds from filteredMatches to ensure consistency
   const filteredEvents = events.filter((e) => {
+    // Check if event's match exists and matches filters
+    const eventMatch = matches.find(m => m.id === e.matchId);
+    if (!eventMatch) return false; // Match not found for this goalie
+    
     if (selectedMatch !== "all") {
       return e.matchId === selectedMatch;
     }
     if (selectedSeason !== "all") {
-      const matchIds = new Set(filteredMatches.map((m) => m.id));
-      return matchIds.has(e.matchId);
+      return eventMatch.seasonId === selectedSeason;
     }
     return true;
   });
