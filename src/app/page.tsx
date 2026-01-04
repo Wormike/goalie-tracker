@@ -82,6 +82,70 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
 
+  // Helper function to assign competitionId to matches without it
+  const assignCompetitionIds = (matches: Match[]): Match[] => {
+    if (!activeCompetition) return matches;
+    
+    return matches.map(m => {
+      // If match already has competitionId, keep it
+      if (m.competitionId) return m;
+      
+      // Try to match by category
+      if (m.category) {
+        // Normalize strings for comparison
+        const categoryNormalized = m.category.toLowerCase().trim()
+          .replace(/["']/g, "")
+          .replace(/\s+/g, " ")
+          .replace(/\s+sk\./g, " sk")
+          .replace(/\s+sk/g, " sk");
+        
+        const compNameNormalized = activeCompetition.name.toLowerCase().trim()
+          .replace(/["']/g, "")
+          .replace(/\s+/g, " ");
+        
+        // Extract key words
+        const categoryWords = categoryNormalized
+          .replace(/liga\s*/g, "")
+          .replace(/starších|starší/g, "starsi")
+          .replace(/mladších|mladší/g, "mladsi")
+          .replace(/žáků|žák/g, "zaci")
+          .replace(/sk\.?\s*\d+/g, "")
+          .trim()
+          .split(/\s+/)
+          .filter(w => w && w.length > 1);
+        
+        const compNameWords = compNameNormalized
+          .replace(/starší/g, "starsi")
+          .replace(/mladší/g, "mladsi")
+          .replace(/žák/g, "zaci")
+          .trim()
+          .split(/\s+/)
+          .filter(w => w && w.length > 1);
+        
+        // Match if all key words from competition name are in category, or vice versa
+        const allCompWordsInCategory = compNameWords.length > 0 && 
+          compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
+        const allCategoryWordsInComp = categoryWords.length > 0 &&
+          categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
+        
+        // Direct substring match
+        const directMatch = categoryNormalized.includes(compNameNormalized) ||
+                           compNameNormalized.includes(categoryNormalized) ||
+                           categoryNormalized === compNameNormalized;
+        
+        // Match by category field if available
+        const matchesCategory = activeCompetition.category && 
+                               categoryNormalized === activeCompetition.category.toLowerCase().trim();
+        
+        if (directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory) {
+          return { ...m, competitionId: activeCompetition.id };
+        }
+      }
+      
+      return m;
+    });
+  };
+
   // Load matches - try Supabase first, fall back to localStorage
   const loadMatches = async () => {
     setLoading(true);
@@ -91,7 +155,9 @@ export default function HomePage() {
         const supabaseMatches = await getMatchesSupabase();
         if (supabaseMatches.length > 0) {
           // Deduplicate matches by ID and externalId
-          const uniqueMatches = deduplicateMatches(supabaseMatches);
+          let uniqueMatches = deduplicateMatches(supabaseMatches);
+          // Assign competitionId to matches that don't have it
+          uniqueMatches = assignCompetitionIds(uniqueMatches);
           setMatches(uniqueMatches);
           setDataSource("supabase");
           setLoading(false);
@@ -103,9 +169,11 @@ export default function HomePage() {
     }
     
     // Fallback to localStorage
-    const localMatches = getMatchesLocal();
+    let localMatches = getMatchesLocal();
     // Deduplicate matches by ID and externalId
-    const uniqueMatches = deduplicateMatches(localMatches);
+    let uniqueMatches = deduplicateMatches(localMatches);
+    // Assign competitionId to matches that don't have it
+    uniqueMatches = assignCompetitionIds(uniqueMatches);
     setMatches(uniqueMatches);
     setDataSource("local");
     setLoading(false);
@@ -190,6 +258,15 @@ export default function HomePage() {
     setGoalies(getGoalies());
   }, []);
 
+  // Reload matches when activeCompetition changes to reassign competitionIds
+  useEffect(() => {
+    if (matches.length > 0) {
+      // Reassign competitionIds to existing matches when activeCompetition changes
+      const reassignedMatches = assignCompetitionIds(matches);
+      setMatches(reassignedMatches);
+    }
+  }, [activeCompetition?.id]);
+
   // Get unique categories from matches
   const categories = Array.from(
     new Set(matches.map((m) => m.category).filter(Boolean))
@@ -202,42 +279,68 @@ export default function HomePage() {
     }
   }, [categoryFilter, categories]);
 
+  // Helper function to match category with competition name
+  const matchesCompetition = (match: Match, competition: typeof activeCompetition): boolean => {
+    if (!competition || !match.category) return false;
+    
+    // Exact match by competitionId
+    if (match.competitionId && match.competitionId === competition.id) {
+      return true;
+    }
+    
+    // Normalize strings for comparison (same logic as in import)
+    const categoryNormalized = match.category.toLowerCase().trim()
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+sk\./g, " sk")
+      .replace(/\s+sk/g, " sk");
+    
+    const compNameNormalized = competition.name.toLowerCase().trim()
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ");
+    
+    // Extract key words
+    const categoryWords = categoryNormalized
+      .replace(/liga\s*/g, "")
+      .replace(/starších|starší/g, "starsi")
+      .replace(/mladších|mladší/g, "mladsi")
+      .replace(/žáků|žák/g, "zaci")
+      .replace(/sk\.?\s*\d+/g, "")
+      .trim()
+      .split(/\s+/)
+      .filter(w => w && w.length > 1);
+    
+    const compNameWords = compNameNormalized
+      .replace(/starší/g, "starsi")
+      .replace(/mladší/g, "mladsi")
+      .replace(/žák/g, "zaci")
+      .trim()
+      .split(/\s+/)
+      .filter(w => w && w.length > 1);
+    
+    // Match if all key words from competition name are in category, or vice versa
+    const allCompWordsInCategory = compNameWords.length > 0 && 
+      compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
+    const allCategoryWordsInComp = categoryWords.length > 0 &&
+      categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
+    
+    // Direct substring match
+    const directMatch = categoryNormalized.includes(compNameNormalized) ||
+                       compNameNormalized.includes(categoryNormalized) ||
+                       categoryNormalized === compNameNormalized;
+    
+    // Match by category field if available
+    const matchesCategory = competition.category && 
+                           categoryNormalized === competition.category.toLowerCase().trim();
+    
+    return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
+  };
+
   // Filter matches by active competition first (if set), then by category
   const filteredMatches = matches.filter((m) => {
     // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
-      // Match by competitionId if available (exact match)
-      if (m.competitionId && m.competitionId === activeCompetition.id) {
-        return true;
-      }
-      // If no competitionId on match, try to match by name or category
-      // This handles legacy matches that don't have competitionId set
-      if (!m.competitionId && m.category) {
-        // Normalize strings for comparison
-        const categoryLower = m.category.toLowerCase().trim();
-        const compNameLower = activeCompetition.name.toLowerCase().trim();
-        
-        // Match by exact name match
-        if (categoryLower === compNameLower) {
-          return true;
-        }
-        
-        // Match by substring (category contains competition name or vice versa)
-        const matchesName = categoryLower.includes(compNameLower) || 
-                           compNameLower.includes(categoryLower);
-        
-        // Match by category field if available
-        const matchesCategory = activeCompetition.category && 
-                               categoryLower === activeCompetition.category.toLowerCase().trim();
-        
-        if (matchesName || matchesCategory) {
-          return true;
-        }
-        // If no match found, exclude this match
-        return false;
-      }
-      // If match has competitionId but it doesn't match activeCompetition, exclude it
-      return false;
+      return matchesCompetition(m, activeCompetition);
     }
     // If no activeCompetition, filter by category only
     return categoryFilter ? m.category === categoryFilter : true;
@@ -353,13 +456,51 @@ export default function HomePage() {
 
           // Assign competitionId if activeCompetition is set and match doesn't have one
           let matchToSave = { ...m };
-          if (!matchToSave.competitionId && activeCompetition) {
-            // Try to match by category name or activeCompetition name
-            const categoryMatches = m.category && activeCompetition.name && 
-                                   (m.category.toLowerCase().includes(activeCompetition.name.toLowerCase()) ||
-                                    activeCompetition.name.toLowerCase().includes(m.category.toLowerCase()));
-            if (categoryMatches || m.category === activeCompetition.name) {
+          if (!matchToSave.competitionId && activeCompetition && m.category) {
+            // Normalize strings for comparison
+            const categoryNormalized = m.category.toLowerCase().trim()
+              .replace(/["']/g, "") // Remove quotes
+              .replace(/\s+/g, " ") // Normalize spaces
+              .replace(/\s+sk\./g, " sk") // Normalize "sk."
+              .replace(/\s+sk/g, " sk"); // Normalize "sk "
+            
+            const compNameNormalized = activeCompetition.name.toLowerCase().trim()
+              .replace(/["']/g, "")
+              .replace(/\s+/g, " ");
+            
+            // Extract key words from category (e.g., "starsi zaci b" from "Liga starších žáků \"B\" sk. 10")
+            const categoryWords = categoryNormalized
+              .replace(/liga\s*/g, "")
+              .replace(/starších|starší/g, "starsi")
+              .replace(/mladších|mladší/g, "mladsi")
+              .replace(/žáků|žák/g, "zaci")
+              .replace(/sk\.?\s*\d+/g, "")
+              .trim()
+              .split(/\s+/)
+              .filter(w => w && w.length > 1);
+            
+            const compNameWords = compNameNormalized
+              .replace(/starší/g, "starsi")
+              .replace(/mladší/g, "mladsi")
+              .replace(/žák/g, "zaci")
+              .trim()
+              .split(/\s+/)
+              .filter(w => w && w.length > 1);
+            
+            // Match if all key words from competition name are in category, or vice versa
+            const allCompWordsInCategory = compNameWords.length > 0 && 
+              compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
+            const allCategoryWordsInComp = categoryWords.length > 0 &&
+              categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
+            
+            // Also check direct substring match
+            const directMatch = categoryNormalized.includes(compNameNormalized) ||
+                               compNameNormalized.includes(categoryNormalized) ||
+                               categoryNormalized === compNameNormalized;
+            
+            if (directMatch || allCompWordsInCategory || allCategoryWordsInComp) {
               matchToSave.competitionId = activeCompetition.id;
+              console.log(`[Import] Assigned competitionId ${activeCompetition.id} to match with category "${m.category}"`);
             }
           }
 

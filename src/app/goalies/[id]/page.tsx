@@ -46,15 +46,12 @@ export default function GoalieDetailPage() {
     );
   }
 
-  // Get competition ID from goalie if available, otherwise don't filter by competition
-  // This allows stats to show all matches/events regardless of competition
-  const competitionId = goalie.competitionId || undefined;
-  
-  // Calculate stats with competition filter if goalie has competitionId
+  // Don't filter by competition in stats - show all stats regardless of competition
+  // This ensures all events are displayed even if matches don't have competitionId set
   const stats = calculateGoalieStats(
     goalie.id,
     selectedSeason === "all" ? undefined : selectedSeason,
-    competitionId
+    undefined // Don't filter by competition - show all events
   );
 
   // Filter matches by season
