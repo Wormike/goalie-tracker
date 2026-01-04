@@ -136,10 +136,15 @@ export function EventListModal({
         updatePayload.shot_zone = editingEvent.shotPosition.zone;
       }
       
-      if (editingEvent.shotTarget) {
-        updatePayload.goal_x = editingEvent.shotTarget.x;
-        updatePayload.goal_y = editingEvent.shotTarget.y;
-        updatePayload.goal_zone = editingEvent.shotTarget.zone;
+      // shotTarget is a string (ShotTargetZone), not an object
+      // For x, y coordinates use goalPosition if available
+      if (editingEvent.goalPosition) {
+        updatePayload.goal_x = editingEvent.goalPosition.x;
+        updatePayload.goal_y = editingEvent.goalPosition.y;
+        updatePayload.goal_zone = editingEvent.goalPosition.zone;
+      } else if (editingEvent.shotTarget) {
+        // If only shotTarget (zone string) is set, set only the zone
+        updatePayload.goal_zone = editingEvent.shotTarget;
       }
       
       if (editingEvent.situation) {
