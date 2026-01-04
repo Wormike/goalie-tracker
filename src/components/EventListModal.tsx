@@ -3,6 +3,8 @@
 import React, { useState, useMemo } from "react";
 import type { GoalieEvent, Period, ResultType, SituationType, ShotPosition, ShotTargetZone } from "@/lib/types";
 import { saveEvent, softDeleteEvent, restoreEvent } from "@/lib/storage";
+import { updateEvent, deleteEvent } from "@/lib/repositories/events";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { MiniRinkSelector } from "./MiniRinkSelector";
 import { GoalTargetSelector, GoalTargetBadge } from "./GoalTargetSelector";
 
@@ -13,6 +15,8 @@ interface EventListModalProps {
   onEventsChange: () => void;
   matchClosed?: boolean;
   goalieCatchHand?: "L" | "R";
+  dataSource?: "supabase" | "local";
+  matchId?: string;
 }
 
 type FilterType = "all" | "save" | "goal" | "miss" | "deleted";
@@ -24,6 +28,8 @@ export function EventListModal({
   onEventsChange,
   matchClosed = false,
   goalieCatchHand = "L",
+  dataSource = "local",
+  matchId,
 }: EventListModalProps) {
   const [filter, setFilter] = useState<FilterType>("all");
   const [editingEvent, setEditingEvent] = useState<GoalieEvent | null>(null);
@@ -64,8 +70,22 @@ export function EventListModal({
 
   if (!open) return null;
 
-  const handleDelete = (event: GoalieEvent) => {
-    if (confirm("Smazat tuto událost?")) {
+  const handleDelete = async (event: GoalieEvent) => {
+    if (!confirm("Smazat tuto událost?")) return;
+    
+    if (dataSource === "supabase" && isSupabaseConfigured()) {
+      // Delete from Supabase
+      const deleted = await deleteEvent(event.id);
+      if (deleted) {
+        // Force immediate update
+        setTimeout(() => {
+          onEventsChange();
+        }, 50);
+      } else {
+        alert("Nepodařilo se smazat událost. Zkuste to znovu.");
+      }
+    } else {
+      // Delete from localStorage
       softDeleteEvent(event.id);
       // Force immediate update by calling onEventsChange asynchronously
       // This ensures storage is updated before we reload
@@ -75,23 +95,84 @@ export function EventListModal({
     }
   };
 
-  const handleRestore = (event: GoalieEvent) => {
-    restoreEvent(event.id);
-    // Force immediate update
-    setTimeout(() => {
-      onEventsChange();
-    }, 50);
+  const handleRestore = async (event: GoalieEvent) => {
+    if (dataSource === "supabase" && isSupabaseConfigured()) {
+      // Restore in Supabase - update status to "confirmed"
+      const restored = await updateEvent(event.id, { status: "confirmed" });
+      if (restored) {
+        setTimeout(() => {
+          onEventsChange();
+        }, 50);
+      } else {
+        alert("Nepodařilo se obnovit událost. Zkuste to znovu.");
+      }
+    } else {
+      // Restore in localStorage
+      restoreEvent(event.id);
+      // Force immediate update
+      setTimeout(() => {
+        onEventsChange();
+      }, 50);
+    }
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingEvent) return;
-    saveEvent({ ...editingEvent, status: "edited", updatedAt: new Date().toISOString() });
-    setEditingEvent(null);
-    setEditTab("basic");
-    // Force immediate update
-    setTimeout(() => {
-      onEventsChange();
-    }, 50);
+    
+    if (dataSource === "supabase" && isSupabaseConfigured()) {
+      // Update in Supabase
+      const periodStr = editingEvent.period === "OT" ? "OT" : String(editingEvent.period) as "1" | "2" | "3";
+      
+      const updatePayload: Partial<any> = {
+        period: periodStr,
+        game_time: editingEvent.gameTime,
+        result: editingEvent.result,
+        status: "confirmed",
+      };
+      
+      if (editingEvent.shotPosition) {
+        updatePayload.shot_x = editingEvent.shotPosition.x;
+        updatePayload.shot_y = editingEvent.shotPosition.y;
+        updatePayload.shot_zone = editingEvent.shotPosition.zone;
+      }
+      
+      if (editingEvent.shotTarget) {
+        updatePayload.goal_x = editingEvent.shotTarget.x;
+        updatePayload.goal_y = editingEvent.shotTarget.y;
+        updatePayload.goal_zone = editingEvent.shotTarget.zone;
+      }
+      
+      if (editingEvent.situation) {
+        updatePayload.situation = editingEvent.situation === "powerplay" ? "pp" : editingEvent.situation === "shorthanded" ? "sh" : editingEvent.situation;
+      }
+      
+      if (editingEvent.saveType) updatePayload.save_type = editingEvent.saveType;
+      if (editingEvent.goalType) updatePayload.goal_type = editingEvent.goalType;
+      if (editingEvent.shotType) updatePayload.shot_type = editingEvent.shotType;
+      if (editingEvent.isRebound !== undefined) updatePayload.is_rebound = editingEvent.isRebound;
+      if (editingEvent.isScreened !== undefined) updatePayload.is_screened = editingEvent.isScreened;
+      if (editingEvent.goalieId) updatePayload.goalie_id = editingEvent.goalieId;
+      
+      const updated = await updateEvent(editingEvent.id, updatePayload);
+      if (updated) {
+        setEditingEvent(null);
+        setEditTab("basic");
+        setTimeout(() => {
+          onEventsChange();
+        }, 50);
+      } else {
+        alert("Nepodařilo se uložit změny. Zkuste to znovu.");
+      }
+    } else {
+      // Update in localStorage
+      saveEvent({ ...editingEvent, status: "edited", updatedAt: new Date().toISOString() });
+      setEditingEvent(null);
+      setEditTab("basic");
+      // Force immediate update
+      setTimeout(() => {
+        onEventsChange();
+      }, 50);
+    }
   };
 
   const handleShotPositionChange = (position: ShotPosition) => {

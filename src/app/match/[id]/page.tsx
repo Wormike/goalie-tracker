@@ -706,6 +706,8 @@ export default function MatchPage() {
         open={showEventList}
         onClose={() => setShowEventList(false)}
         events={allEvents}
+        dataSource={dataSource}
+        matchId={match?.id}
         onEventsChange={async () => {
           if (!match) return;
           
@@ -726,6 +728,7 @@ export default function MatchPage() {
           }
         }}
         matchClosed={isMatchClosed}
+        goalieCatchHand={goalie?.catchHand || "L"}
       />
 
       {/* Landscape Tracking View */}

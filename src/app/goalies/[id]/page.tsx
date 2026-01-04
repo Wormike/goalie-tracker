@@ -44,9 +44,13 @@ export default function GoalieDetailPage() {
     );
   }
 
+  // Get competition ID from goalie if available, or filter by active competition
+  const competitionId = goalie.competitionId || undefined;
+  
   const stats = calculateGoalieStats(
     goalie.id,
-    selectedSeason === "all" ? undefined : selectedSeason
+    selectedSeason === "all" ? undefined : selectedSeason,
+    competitionId
   );
 
   // Filter matches by season

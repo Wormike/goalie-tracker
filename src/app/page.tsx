@@ -202,10 +202,35 @@ export default function HomePage() {
     }
   }, [categoryFilter, categories]);
 
-  // Filter matches by category (no "all" option - always filter by selected category)
-  const filteredMatches = categoryFilter
-    ? matches.filter((m) => m.category === categoryFilter)
-    : matches;
+  // Filter matches by active competition first (if set), then by category
+  const filteredMatches = matches.filter((m) => {
+    // If activeCompetition is set, filter by competitionId or name/category match
+    if (activeCompetition) {
+      // Match by competitionId if available (exact match)
+      if (m.competitionId && m.competitionId === activeCompetition.id) {
+        return true;
+      }
+      // If no competitionId on match, try to match by name or category
+      // This handles legacy matches that don't have competitionId set
+      if (!m.competitionId) {
+        // Match by competition name or category if they match
+        const matchesName = m.category && activeCompetition.name && 
+                           (m.category.includes(activeCompetition.name) || 
+                            activeCompetition.name.includes(m.category));
+        const matchesCategory = m.category && activeCompetition.category && 
+                               m.category === activeCompetition.category;
+        if (matchesName || matchesCategory) {
+          return true;
+        }
+        // If no match found, exclude this match
+        return false;
+      }
+      // If match has competitionId but it doesn't match activeCompetition, exclude it
+      return false;
+    }
+    // If no activeCompetition, filter by category only
+    return categoryFilter ? m.category === categoryFilter : true;
+  });
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
