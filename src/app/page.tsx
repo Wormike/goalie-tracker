@@ -134,8 +134,8 @@ export default function HomePage() {
                            categoryNormalized === compNameNormalized;
         
         // Match by category field if available
-        const matchesCategory = activeCompetition.category && 
-                               categoryNormalized === activeCompetition.category.toLowerCase().trim();
+        const matchesCategory = activeCompetition.category ? 
+                               (categoryNormalized === activeCompetition.category.toLowerCase().trim()) : false;
         
         if (directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory) {
           return { ...m, competitionId: activeCompetition.id };
@@ -329,11 +329,11 @@ export default function HomePage() {
                        compNameNormalized.includes(categoryNormalized) ||
                        categoryNormalized === compNameNormalized;
     
-    // Match by category field if available
-    const matchesCategory = competition.category && 
-                           categoryNormalized === competition.category.toLowerCase().trim();
-    
-    return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
+        // Match by category field if available
+        const matchesCategory = competition.category ? 
+                               (categoryNormalized === competition.category.toLowerCase().trim()) : false;
+        
+        return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
   };
 
   // Filter matches by active competition first (if set), then by category
