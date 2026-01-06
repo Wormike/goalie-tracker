@@ -16,6 +16,7 @@ import {
   findExternalMapping,
 } from "@/lib/storage";
 import { Select } from "@/components/ui/Select";
+import { useCompetition } from "@/contexts/CompetitionContext";
 
 interface ImportWizardProps {
   open: boolean;
@@ -33,7 +34,43 @@ const COMPETITION_PRESETS = [
   { id: "mladsi-zaci-b", name: 'Liga mladších žáků "B" sk. 14', season: "2025-2026" },
 ];
 
+// Helper function to map category name to competition name
+// e.g., "Liga mladších žáků \"B\" sk. 14" -> "Mladší žáci B"
+function mapCategoryToCompetitionName(categoryName: string): string {
+  // Remove quotes and normalize
+  const normalized = categoryName
+    .replace(/["']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  
+  // Extract key parts: "Liga mladších žáků B sk. 14" -> "Mladší žáci B"
+  // Pattern: Liga [age] žáků [letter] sk. [number]
+  const match = normalized.match(/liga\s+(mladších|starších)\s+žáků\s+"?([AB])"?/i);
+  if (match) {
+    const age = match[1].toLowerCase();
+    const letter = match[2].toUpperCase();
+    const ageShort = age === "mladších" ? "Mladší" : "Starší";
+    return `${ageShort} žáci ${letter}`;
+  }
+  
+  // Fallback: try to extract from any pattern
+  const fallbackMatch = normalized.match(/(mladší|starší)\s*žáci?\s*([AB])?/i);
+  if (fallbackMatch) {
+    const age = fallbackMatch[1];
+    const letter = fallbackMatch[2] || "";
+    const ageCapitalized = age.charAt(0).toUpperCase() + age.slice(1);
+    return letter ? `${ageCapitalized} žáci ${letter.toUpperCase()}` : `${ageCapitalized} žáci`;
+  }
+  
+  // Last resort: return simplified version
+  return normalized
+    .replace(/^liga\s+/i, "")
+    .replace(/\s+sk\.\s*\d+.*$/i, "")
+    .trim();
+}
+
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
+  const { addCompetition, competitions: userCompetitions } = useCompetition();
   const [step, setStep] = useState<Step>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +91,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
     homeTeamId: "",
   });
   const [rememberMapping, setRememberMapping] = useState(true);
+  const [autoCreatedCompetition, setAutoCreatedCompetition] = useState<string | null>(null);
 
   // Step 2: Goalie selection
   const [goalies, setGoalies] = useState<Goalie[]>([]);
@@ -78,16 +116,21 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         selectedPreset.id
       );
       if (savedCompMapping) {
-        setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
+        // Check if the saved competition still exists in userCompetitions
+        const exists = userCompetitions.some(c => c.id === savedCompMapping.internalId);
+        if (exists) {
+          setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
+        }
       }
     }
-  }, [open, selectedPreset.id]);
+  }, [open, selectedPreset.id, userCompetitions]);
 
   if (!open) return null;
 
   const handleFetchMatches = async () => {
     setLoading(true);
     setError(null);
+    setAutoCreatedCompetition(null);
 
     try {
       const compId = customCompetitionId || selectedPreset.id;
@@ -102,8 +145,43 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
 
       const data = await response.json();
 
-      if (data.success && data.matches) {
+      if (data.success && data.matches && data.matches.length > 0) {
         setScrapedMatches(data.matches);
+        
+        // Get category from first match (all matches should have same category)
+        const firstMatch = data.matches[0] as Match;
+        const categoryName = firstMatch.category || selectedPreset.name;
+        
+        // Map category name to competition name
+        const competitionName = mapCategoryToCompetitionName(categoryName);
+        
+        // Check if competition with this name already exists
+        let existingCompetition = userCompetitions.find(
+          (c) => c.name.toLowerCase() === competitionName.toLowerCase()
+        );
+        
+        // If not found, create new competition automatically
+        if (!existingCompetition) {
+          existingCompetition = addCompetition({
+            name: competitionName,
+            category: categoryName, // Store original category for matching
+            standingsUrl: selectedPreset.id === "starsi-zaci-a" 
+              ? "https://www.ceskyhokej.cz/competition/standings/24"
+              : selectedPreset.id === "starsi-zaci-b"
+              ? "https://www.ceskyhokej.cz/competition/standings/26"
+              : selectedPreset.id === "mladsi-zaci-a"
+              ? "https://www.ceskyhokej.cz/competition/standings/25"
+              : selectedPreset.id === "mladsi-zaci-b"
+              ? "https://www.ceskyhokej.cz/competition/standings/27"
+              : undefined,
+          });
+          setAutoCreatedCompetition(existingCompetition.id);
+          console.log(`[ImportWizard] Auto-created competition: ${competitionName}`);
+        }
+        
+        // Set the competition mapping
+        setMappings((m) => ({ ...m, competitionId: existingCompetition!.id }));
+        
         // Pre-select all upcoming matches
         const upcomingIds = new Set<string>(
           data.matches
@@ -299,6 +377,14 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 Přiřaďte je k lokální soutěži a týmu.
               </p>
 
+              {autoCreatedCompetition && (
+                <div className="rounded-lg bg-accentSuccess/10 border border-accentSuccess/20 p-3 text-sm">
+                  <p className="text-accentSuccess font-medium">
+                    ✓ Soutěž "{userCompetitions.find(c => c.id === autoCreatedCompetition)?.name}" byla automaticky vytvořena
+                  </p>
+                </div>
+              )}
+
               <Select
                 label="Přiřadit k soutěži"
                 value={mappings.competitionId}
@@ -307,9 +393,9 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 }
                 options={[
                   { value: "", label: "-- Ponechat z importu --" },
-                  ...competitions.map((c) => ({
+                  ...userCompetitions.map((c) => ({
                     value: c.id,
-                    label: `${c.category} (${c.seasonId})`,
+                    label: c.name,
                   })),
                 ]}
               />
@@ -504,8 +590,8 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                   📂 Soutěž:{" "}
                   <span className="text-slate-200">
                     {mappings.competitionId
-                      ? competitions.find((c) => c.id === mappings.competitionId)
-                          ?.category
+                      ? userCompetitions.find((c) => c.id === mappings.competitionId)
+                          ?.name || "Neznámá soutěž"
                       : "Z importu"}
                   </span>
                 </p>
