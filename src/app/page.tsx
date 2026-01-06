@@ -1,6 +1,6 @@
 "use client";
 import type { CompetitionStandings } from "@/lib/types";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Match, Goalie } from "@/lib/types";
@@ -260,11 +260,14 @@ export default function HomePage() {
     setGoalies(getGoalies());
   }, []);
 
-  // Reload matches when navigating back to home page
+  // Reload matches when navigating back to home page (but not on initial mount)
+  const prevPathnameRef = useRef<string | null>(null);
   useEffect(() => {
-    if (pathname === '/') {
+    if (prevPathnameRef.current !== null && pathname === '/' && prevPathnameRef.current !== '/') {
+      // Only reload if we're navigating back to home from another page
       loadMatches();
     }
+    prevPathnameRef.current = pathname;
   }, [pathname]);
 
   // Reload matches when page becomes visible (e.g., after returning from match detail)
@@ -275,16 +278,10 @@ export default function HomePage() {
       }
     };
     
-    const handleFocus = () => {
-      loadMatches();
-    };
-    
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
@@ -367,7 +364,7 @@ export default function HomePage() {
   };
 
   // Filter matches by active competition first (if set), then by category
-  const filteredMatches = matches.filter((m) => {
+  let filteredMatches = matches.filter((m) => {
     // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
       return matchesCompetition(m, activeCompetition);
@@ -375,6 +372,13 @@ export default function HomePage() {
     // If no activeCompetition, filter by category only
     return categoryFilter ? m.category === categoryFilter : true;
   });
+
+  // Fallback: if filtering by activeCompetition returns no matches, show all matches
+  // This prevents empty page when matches exist but don't match competition filter
+  if (activeCompetition && filteredMatches.length === 0 && matches.length > 0) {
+    console.log('[HomePage] No matches match activeCompetition, showing all matches as fallback');
+    filteredMatches = matches;
+  }
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
