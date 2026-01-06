@@ -501,15 +501,33 @@ export default function MatchPage() {
     // If competitionId is empty string, convert to null to allow removal
     const finalCompetitionId = competitionId && competitionId.trim() !== "" ? competitionId : undefined;
     
+    // Mark as manually set when user changes it - store in metadata
+    if (typeof window !== 'undefined') {
+      try {
+        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+        metadata[match.id] = true; // Mark as manually set
+        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+      } catch (err) {
+        console.error('[MatchPage] Failed to save competition metadata:', err);
+      }
+    }
+    
     if (dataSource === "supabase") {
       // Update in Supabase
-      const updated = await updateMatchSupabase(match.id, { competition_id: finalCompetitionId });
+      const updated = await updateMatchSupabase(match.id, { 
+        competition_id: finalCompetitionId,
+      });
       if (updated) {
-        setMatch(updated);
+        // Merge manually set flag
+        setMatch({ ...updated, competitionIdManuallySet: true });
       }
     } else {
       // Update in localStorage
-      const updatedMatch = { ...match, competitionId: finalCompetitionId };
+      const updatedMatch = { 
+        ...match, 
+        competitionId: finalCompetitionId,
+        competitionIdManuallySet: true,
+      };
       saveMatchLocal(updatedMatch);
       setMatch(updatedMatch);
     }

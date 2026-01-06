@@ -52,13 +52,55 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
 
+  // Helper function to load manually set competition flags from metadata
+  const loadManuallySetFlags = (): Set<string> => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+      return new Set(Object.keys(metadata).filter(id => metadata[id] === true));
+    } catch {
+      return new Set();
+    }
+  };
+
+  // Helper function to save manually set competition flag
+  const saveManuallySetFlag = (matchId: string, isManuallySet: boolean) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+      if (isManuallySet) {
+        metadata[matchId] = true;
+      } else {
+        delete metadata[matchId];
+      }
+      localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+    } catch (err) {
+      console.error('[HomePage] Failed to save competition metadata:', err);
+    }
+  };
+
   // Helper function to assign competitionId to matches without it
   const assignCompetitionIds = (matches: Match[]): Match[] => {
     if (!activeCompetition) return matches;
     
+    // Load manually set flags
+    const manuallySetMatchIds = loadManuallySetFlags();
+    
     return matches.map(m => {
-      // If match already has competitionId, keep it
-      if (m.competitionId) return m;
+      // If match has manually set competitionId, never overwrite it
+      const isManuallySet = manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet;
+      if (isManuallySet && m.competitionId) {
+        return { ...m, competitionIdManuallySet: true };
+      }
+      
+      // If match already has competitionId (but not manually set), check if it matches
+      if (m.competitionId && !isManuallySet) {
+        // If it already matches activeCompetition, keep it
+        if (m.competitionId === activeCompetition.id) {
+          return m;
+        }
+        // If it doesn't match, we'll try to reassign based on category below
+      }
       
       // Try to match by category
       if (m.category) {
@@ -108,7 +150,10 @@ export default function HomePage() {
                                (categoryNormalized === activeCompetition.category.toLowerCase().trim()) : false;
         
         if (directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory) {
-          return { ...m, competitionId: activeCompetition.id };
+          // Only assign if not manually set
+          if (!isManuallySet) {
+            return { ...m, competitionId: activeCompetition.id, competitionIdManuallySet: false };
+          }
         }
       }
       
@@ -123,16 +168,21 @@ export default function HomePage() {
     if (isSupabaseConfigured()) {
       try {
         const supabaseMatches = await getMatchesSupabase();
-        if (supabaseMatches.length > 0) {
-          // Deduplicate matches by ID and externalId
-          let uniqueMatches = deduplicateMatches(supabaseMatches);
-          // Assign competitionId to matches that don't have it
-          uniqueMatches = assignCompetitionIds(uniqueMatches);
-          setMatches(uniqueMatches);
-          setDataSource("supabase");
-          setLoading(false);
-          return;
-        }
+        // Always use Supabase if configured, even if empty (to show deleted matches are gone)
+        // Deduplicate matches by ID and externalId
+        let uniqueMatches = deduplicateMatches(supabaseMatches);
+        // Load manually set flags and merge with matches
+        const manuallySetMatchIds = loadManuallySetFlags();
+        uniqueMatches = uniqueMatches.map(m => ({
+          ...m,
+          competitionIdManuallySet: manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet,
+        }));
+        // Assign competitionId to matches that don't have it (respecting manual flags)
+        uniqueMatches = assignCompetitionIds(uniqueMatches);
+        setMatches(uniqueMatches);
+        setDataSource("supabase");
+        setLoading(false);
+        return;
       } catch (err) {
         console.error("[HomePage] Failed to load from Supabase:", err);
       }
@@ -140,9 +190,15 @@ export default function HomePage() {
     
     // Fallback to localStorage
     let localMatches = getMatchesLocal();
+    // Load manually set flags and merge with matches
+    const manuallySetMatchIds = loadManuallySetFlags();
+    localMatches = localMatches.map(m => ({
+      ...m,
+      competitionIdManuallySet: manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet,
+    }));
     // Deduplicate matches by ID and externalId
     let uniqueMatches = deduplicateMatches(localMatches);
-    // Assign competitionId to matches that don't have it
+    // Assign competitionId to matches that don't have it (respecting manual flags)
     uniqueMatches = assignCompetitionIds(uniqueMatches);
     setMatches(uniqueMatches);
     setDataSource("local");
@@ -596,18 +652,33 @@ export default function HomePage() {
   const handleDeleteMatch = async () => {
     if (!deletingMatch) return;
     
-    if (dataSource === "supabase") {
+    // Always try to delete from Supabase if configured, even if dataSource is "local"
+    // This ensures matches are deleted from database
+    if (isSupabaseConfigured()) {
       const success = await deleteMatchSupabase(deletingMatch.id);
-      if (success) {
-        await loadMatches();
-      } else {
-        alert("Nepodařilo se smazat zápas");
+      if (!success) {
+        alert("Nepodařilo se smazat zápas z databáze");
+        setDeletingMatch(null);
+        return;
       }
-    } else {
-      deleteMatchLocal(deletingMatch.id);
-      setMatches(getMatchesLocal());
     }
     
+    // Also delete from localStorage if exists there
+    deleteMatchLocal(deletingMatch.id);
+    
+    // Remove manually set flag if exists
+    if (typeof window !== 'undefined') {
+      try {
+        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+        delete metadata[deletingMatch.id];
+        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+      } catch (err) {
+        // Ignore errors
+      }
+    }
+    
+    // Reload matches to reflect deletion
+    await loadMatches();
     setDeletingMatch(null);
   };
 
@@ -618,18 +689,33 @@ export default function HomePage() {
       : `opravdu smazat všech ${filteredMatches.length} zápasů?`;
     if (!confirm(`Chcete ${label}`)) return;
 
-    if (dataSource === "supabase") {
+    // Always try to delete from Supabase if configured
+    if (isSupabaseConfigured()) {
       for (const m of filteredMatches) {
         // best-effort – pokud se některý zápas nepodaří smazat, pokračujeme dál
-        // a po dokončení znovu načteme seznam
         // eslint-disable-next-line no-await-in-loop
         await deleteMatchSupabase(m.id);
       }
-      await loadMatches();
-    } else {
-      filteredMatches.forEach((m) => deleteMatchLocal(m.id));
-      setMatches(getMatchesLocal());
     }
+    
+    // Also delete from localStorage
+    filteredMatches.forEach((m) => deleteMatchLocal(m.id));
+    
+    // Remove manually set flags
+    if (typeof window !== 'undefined') {
+      try {
+        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+        filteredMatches.forEach(m => {
+          delete metadata[m.id];
+        });
+        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+      } catch (err) {
+        // Ignore errors
+      }
+    }
+    
+    // Reload matches to reflect deletions
+    await loadMatches();
   };
 
   // Get current standings URL based on category filter or active competition

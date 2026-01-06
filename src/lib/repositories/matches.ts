@@ -79,6 +79,7 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
     category: db.competition_id || "", // Legacy field
     matchType: (db.match_type || "friendly") as MatchType,
     competitionId: db.competition_id || undefined,
+    competitionIdManuallySet: undefined, // Will be loaded from metadata if needed
     seasonId: db.season_id || "",
     // Timing
     datetime: db.datetime,

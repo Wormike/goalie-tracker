@@ -200,6 +200,7 @@ export interface Match {
   category: string; // Legacy field, maps to competition_id
   matchType: MatchType;
   competitionId?: string; // FK to competitions
+  competitionIdManuallySet?: boolean; // True if competitionId was manually assigned (should not be overwritten)
   seasonId: string; // FK to seasons
   
   // Timing and location

@@ -214,6 +214,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           ...match,
           goalieId: selectedGoalieId || undefined,
           competitionId: mappings.competitionId || undefined,
+          competitionIdManuallySet: false, // Imported matches are not manually set
           homeTeamId: mappings.homeTeamId || undefined,
         };
         saveMatch(enrichedMatch);

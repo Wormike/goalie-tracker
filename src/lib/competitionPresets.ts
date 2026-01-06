@@ -40,3 +40,4 @@ export const COMPETITION_PRESETS: CompetitionPreset[] = [
   },
 ];
 
+
