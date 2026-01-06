@@ -2,6 +2,7 @@
 import type { CompetitionStandings } from "@/lib/types";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { Match, Goalie } from "@/lib/types";
 import {
   getMatches as getMatchesLocal,
@@ -58,6 +59,7 @@ const COMPETITION_PRESETS = [
 export default function HomePage() {
   // User competition context
   const { activeCompetition, hasCompetitions } = useCompetition();
+  const pathname = usePathname();
   
   const [matches, setMatches] = useState<Match[]>([]);
   const [goalies, setGoalies] = useState<Goalie[]>([]);
@@ -256,6 +258,34 @@ export default function HomePage() {
   useEffect(() => {
     loadMatches();
     setGoalies(getGoalies());
+  }, []);
+
+  // Reload matches when navigating back to home page
+  useEffect(() => {
+    if (pathname === '/') {
+      loadMatches();
+    }
+  }, [pathname]);
+
+  // Reload matches when page becomes visible (e.g., after returning from match detail)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadMatches();
+      }
+    };
+    
+    const handleFocus = () => {
+      loadMatches();
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   // Reload matches when activeCompetition changes to reassign competitionIds
