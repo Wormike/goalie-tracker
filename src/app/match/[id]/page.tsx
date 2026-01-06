@@ -44,6 +44,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { generateMatchReport, shareText } from "@/lib/utils";
 import { useAutoSync } from "@/hooks/useAutoSync";
+import { useCompetition } from "@/contexts/CompetitionContext";
 
 function getZoneFromCoords(x: number, y: number): ShotZone {
   if (y < 30) return "blue_line";
@@ -84,11 +85,13 @@ export default function MatchPage() {
   } | null>(null);
   const [pendingZone, setPendingZone] = useState<ShotZone | null>(null);
   const [showGoalieSelect, setShowGoalieSelect] = useState(false);
+  const [showCompetitionSelect, setShowCompetitionSelect] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showEventList, setShowEventList] = useState(false);
   const [activeTab, setActiveTab] = useState<"tracking" | "roster">("tracking");
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   const [loading, setLoading] = useState(true);
+  const { competitions: userCompetitions } = useCompetition();
 
   // Load match data - try Supabase first, fall back to localStorage
   const loadMatchData = async (matchId: string) => {
@@ -492,6 +495,28 @@ export default function MatchPage() {
     setShowGoalieSelect(false);
   };
 
+  const handleCompetitionChange = async (competitionId: string | null) => {
+    if (!match) return;
+    
+    // If competitionId is empty string, convert to null to allow removal
+    const finalCompetitionId = competitionId && competitionId.trim() !== "" ? competitionId : undefined;
+    
+    if (dataSource === "supabase") {
+      // Update in Supabase
+      const updated = await updateMatchSupabase(match.id, { competition_id: finalCompetitionId });
+      if (updated) {
+        setMatch(updated);
+      }
+    } else {
+      // Update in localStorage
+      const updatedMatch = { ...match, competitionId: finalCompetitionId };
+      saveMatchLocal(updatedMatch);
+      setMatch(updatedMatch);
+    }
+
+    setShowCompetitionSelect(false);
+  };
+
   const handleDeleteLastEvent = () => {
     if (events.length === 0 || isMatchClosed) return;
     if (!confirm("Smazat poslední událost?")) return;
@@ -611,6 +636,24 @@ export default function MatchPage() {
         </button>
       )}
 
+      {/* Competition info */}
+      <div className="border-b border-borderSoft bg-bgSurfaceSoft/30 px-4 py-2">
+        <button
+          onClick={() => setShowCompetitionSelect(true)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">Soutěž:</span>
+            <span className="text-sm font-medium text-slate-200">
+              {match.competitionId
+                ? userCompetitions.find((c) => c.id === match.competitionId)?.name || "Neznámá soutěž"
+                : match.category || "Nepřiřazeno"}
+            </span>
+          </div>
+          <span className="text-xs text-slate-500">✏️ Změnit</span>
+        </button>
+      </div>
+
       {/* Tabs - show only if roster exists */}
       {hasRoster && (
         <div className="flex border-b border-borderSoft bg-bgSurfaceSoft">
@@ -696,6 +739,62 @@ export default function MatchPage() {
               className="mt-4 w-full rounded-lg bg-slate-800 py-2 text-sm text-slate-300"
             >
               Zavřít
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Competition selector modal */}
+      {showCompetitionSelect && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-bgSurfaceSoft p-4">
+            <h3 className="mb-4 text-center font-semibold">Vybrat soutěž</h3>
+            {userCompetitions.length === 0 ? (
+              <div className="py-4 text-center">
+                <p className="text-sm text-slate-400">Žádné soutěže</p>
+                <button
+                  onClick={() => router.push("/settings")}
+                  className="mt-2 text-sm text-accentPrimary"
+                >
+                  Vytvořit soutěž →
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleCompetitionChange(null)}
+                  className={`w-full rounded-lg px-3 py-3 text-left ${
+                    !match.competitionId
+                      ? "bg-accentPrimary/20 text-accentPrimary"
+                      : "bg-slate-800 text-slate-200"
+                  }`}
+                >
+                  <div className="font-medium">Nepřiřazeno</div>
+                  <div className="text-xs text-slate-400">Zápas nebude filtrován</div>
+                </button>
+                {userCompetitions.map((comp) => (
+                  <button
+                    key={comp.id}
+                    onClick={() => handleCompetitionChange(comp.id)}
+                    className={`w-full rounded-lg px-3 py-3 text-left ${
+                      match.competitionId === comp.id
+                        ? "bg-accentPrimary/20 text-accentPrimary"
+                        : "bg-slate-800 text-slate-200"
+                    }`}
+                  >
+                    <div className="font-medium">{comp.name}</div>
+                    {comp.category && (
+                      <div className="text-xs text-slate-400">{comp.category}</div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowCompetitionSelect(false)}
+              className="mt-4 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300"
+            >
+              Zrušit
             </button>
           </div>
         </div>

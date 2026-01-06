@@ -22,39 +22,7 @@ import { ImportWizard } from "@/components/ImportWizard";
 import { StandingsButton } from "@/components/StandingsLink";
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
 import { useCompetition } from "@/contexts/CompetitionContext";
-
-// Preset competitions for HC Slovan Ústí nad Labem (zapasy.ceskyhokej.cz)
-// standingsUrl points to external ceskyhokej.cz page
-const COMPETITION_PRESETS = [
-  { 
-    id: "starsi-zaci-a", 
-    name: 'Liga starších žáků "A" sk. 2', 
-    season: "2025-2026", 
-    externalId: "Z8",
-    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/24"
-  },
-  { 
-    id: "starsi-zaci-b", 
-    name: 'Liga starších žáků "B" sk. 10', 
-    season: "2025-2026", 
-    externalId: "Z7",
-    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/26"
-  },
-  { 
-    id: "mladsi-zaci-a", 
-    name: 'Liga mladších žáků "A" sk. 4', 
-    season: "2025-2026", 
-    externalId: "Z6",
-    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/25"
-  },
-  { 
-    id: "mladsi-zaci-b", 
-    name: 'Liga mladších žáků "B" sk. 14', 
-    season: "2025-2026", 
-    externalId: "Z5",
-    standingsUrl: "https://www.ceskyhokej.cz/competition/standings/27"
-  },
-];
+import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 export default function HomePage() {
   // User competition context
@@ -188,13 +156,10 @@ export default function HomePage() {
     const seenIds = new Set<string>();
     const seenByExternalId = new Map<string, Match>();
     const unique: Match[] = [];
-    const warnings: string[] = [];
     
     for (const match of matches) {
       // First check by ID (most reliable)
       if (match.id && seenIds.has(match.id)) {
-        console.log(`[Deduplication] Skipping duplicate match by ID: ${match.id}`);
-        warnings.push(`Duplicate by ID: ${match.id} (${match.home} vs ${match.away} on ${match.datetime})`);
         continue;
       }
       if (match.id) seenIds.add(match.id);
@@ -217,12 +182,9 @@ export default function HomePage() {
                 seenIds.delete(existing.id);
                 seenIds.add(match.id);
               }
-              warnings.push(`Updated match with externalId ${match.externalId} (kept version with more data)`);
             }
             continue;
           } else {
-            console.log(`[Deduplication] Skipping duplicate match by externalId: ${match.externalId}`);
-            warnings.push(`Duplicate by externalId: ${match.externalId} (${match.home} vs ${match.away})`);
             continue;
           }
         }
@@ -230,26 +192,7 @@ export default function HomePage() {
       }
       
       // Do NOT deduplicate by datetime + teams - this is too aggressive and could remove legitimate matches
-      // Only log a warning if we see potential duplicates
-      const key = `${match.datetime}-${match.home}-${match.away}`;
-      const existingMatchesWithSameKey = unique.filter(m => 
-        `${m.datetime}-${m.home}-${m.away}` === key && m.id !== match.id && !m.externalId && !match.externalId
-      );
-      
-      if (existingMatchesWithSameKey.length > 0) {
-        warnings.push(`Warning: Multiple matches with same datetime+teams: ${key} (IDs: ${existingMatchesWithSameKey.map(m => m.id).join(', ')}, ${match.id})`);
-        // But we still include it - let user decide
-      }
-      
       unique.push(match);
-    }
-    
-    if (warnings.length > 0) {
-      console.log(`[Deduplication] Warnings:`, warnings);
-    }
-    
-    if (matches.length !== unique.length) {
-      console.log(`[Deduplication] Removed ${matches.length - unique.length} duplicate matches (by ID or externalId only)`);
     }
     
     return unique;
@@ -308,12 +251,15 @@ export default function HomePage() {
 
   // Helper function to match category with competition name
   const matchesCompetition = (match: Match, competition: typeof activeCompetition): boolean => {
-    if (!competition || !match.category) return false;
+    if (!competition) return false;
     
-    // Exact match by competitionId
+    // Primary: Exact match by competitionId (most reliable)
     if (match.competitionId && match.competitionId === competition.id) {
       return true;
     }
+    
+    // Fallback: Match by category name (for backward compatibility with old matches)
+    if (!match.category) return false;
     
     // Normalize strings for comparison (same logic as in import)
     const categoryNormalized = match.category.toLowerCase().trim()
@@ -325,6 +271,14 @@ export default function HomePage() {
     const compNameNormalized = competition.name.toLowerCase().trim()
       .replace(/["']/g, "")
       .replace(/\s+/g, " ");
+    
+    // Match by category field if available
+    if (competition.category) {
+      const compCategoryNormalized = competition.category.toLowerCase().trim();
+      if (categoryNormalized === compCategoryNormalized) {
+        return true;
+      }
+    }
     
     // Extract key words
     const categoryWords = categoryNormalized
@@ -356,11 +310,7 @@ export default function HomePage() {
                        compNameNormalized.includes(categoryNormalized) ||
                        categoryNormalized === compNameNormalized;
     
-    // Match by category field if available
-    const matchesCategory: boolean = competition.category ? 
-                                     (categoryNormalized === competition.category.toLowerCase().trim()) : false;
-    
-    return directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory;
+    return directMatch || allCompWordsInCategory || allCategoryWordsInComp;
   };
 
   // Filter matches by active competition first (if set), then by category
@@ -376,7 +326,6 @@ export default function HomePage() {
   // Fallback: if filtering by activeCompetition returns no matches, show all matches
   // This prevents empty page when matches exist but don't match competition filter
   if (activeCompetition && filteredMatches.length === 0 && matches.length > 0) {
-    console.log('[HomePage] No matches match activeCompetition, showing all matches as fallback');
     filteredMatches = matches;
   }
 
@@ -534,7 +483,6 @@ export default function HomePage() {
             
             if (directMatch || allCompWordsInCategory || allCategoryWordsInComp) {
               matchToSave.competitionId = activeCompetition.id;
-              console.log(`[Import] Assigned competitionId ${activeCompetition.id} to match with category "${m.category}"`);
             }
           }
 
@@ -549,7 +497,6 @@ export default function HomePage() {
           existingByKey.set(key, matchToSave);
         });
 
-        console.log(`[Import] Saved ${savedCount} new matches, skipped ${skippedCount} duplicates`);
 
         // Reload matches (prefer Supabase if configured)
         await loadMatches();

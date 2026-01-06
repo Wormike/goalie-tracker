@@ -5,18 +5,17 @@ import type {
   Match,
   Goalie,
   Team,
-  Competition,
 } from "@/lib/types";
 import {
   getGoalies,
   getTeams,
-  getCompetitions,
   saveMatch,
   saveExternalMapping,
   findExternalMapping,
 } from "@/lib/storage";
 import { Select } from "@/components/ui/Select";
 import { useCompetition } from "@/contexts/CompetitionContext";
+import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 interface ImportWizardProps {
   open: boolean;
@@ -25,14 +24,6 @@ interface ImportWizardProps {
 }
 
 type Step = 0 | 1 | 2 | 3;
-
-// Competition presets for zapasy.ceskyhokej.cz
-const COMPETITION_PRESETS = [
-  { id: "starsi-zaci-a", name: 'Liga starších žáků "A" sk. 2', season: "2025-2026" },
-  { id: "starsi-zaci-b", name: 'Liga starších žáků "B" sk. 10', season: "2025-2026" },
-  { id: "mladsi-zaci-a", name: 'Liga mladších žáků "A" sk. 4', season: "2025-2026" },
-  { id: "mladsi-zaci-b", name: 'Liga mladších žáků "B" sk. 14', season: "2025-2026" },
-];
 
 // Helper function to map category name to competition name
 // e.g., "Liga mladších žáků \"B\" sk. 14" -> "Mladší žáci B"
@@ -82,7 +73,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
   // Step 1: Mapping
   const [scrapedMatches, setScrapedMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [mappings, setMappings] = useState<{
     competitionId: string;
     homeTeamId: string;
@@ -106,7 +96,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
   useEffect(() => {
     if (open) {
       setTeams(getTeams());
-      setCompetitions(getCompetitions());
       setGoalies(getGoalies());
       
       // Check for saved mappings
@@ -165,18 +154,9 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           existingCompetition = addCompetition({
             name: competitionName,
             category: categoryName, // Store original category for matching
-            standingsUrl: selectedPreset.id === "starsi-zaci-a" 
-              ? "https://www.ceskyhokej.cz/competition/standings/24"
-              : selectedPreset.id === "starsi-zaci-b"
-              ? "https://www.ceskyhokej.cz/competition/standings/26"
-              : selectedPreset.id === "mladsi-zaci-a"
-              ? "https://www.ceskyhokej.cz/competition/standings/25"
-              : selectedPreset.id === "mladsi-zaci-b"
-              ? "https://www.ceskyhokej.cz/competition/standings/27"
-              : undefined,
+            standingsUrl: selectedPreset.standingsUrl,
           });
           setAutoCreatedCompetition(existingCompetition.id);
-          console.log(`[ImportWizard] Auto-created competition: ${competitionName}`);
         }
         
         // Set the competition mapping
