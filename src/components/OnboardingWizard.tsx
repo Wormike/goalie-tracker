@@ -28,12 +28,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Don't render if loading or if onboarding is not needed
-  if (isLoading || !needsOnboarding) {
-    return null;
-  }
-
   // If competitions exist, default to select mode
+  // IMPORTANT: This hook must be called before any conditional returns
+  // to follow React's Rules of Hooks
   useEffect(() => {
     if (competitions.length > 0) {
       setMode("select");
@@ -42,6 +39,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       setMode("create");
     }
   }, [competitions.length]);
+
+  // Don't render if loading or if onboarding is not needed
+  if (isLoading || !needsOnboarding) {
+    return null;
+  }
 
   const handleSelectCompetition = () => {
     if (!selectedCompetitionId) {
