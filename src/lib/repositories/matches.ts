@@ -46,6 +46,11 @@ export interface DbMatch {
     name: string;
     short_name: string | null;
   } | null;
+  away_team?: {
+    id: string;
+    name: string;
+    short_name: string | null;
+  } | null;
   goalie?: {
     id: string;
     first_name: string;
@@ -66,11 +71,15 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
   const status = normalizeMatchStatus(db.status) as MatchStatus;
   const isCompleted = status === "completed" || status === "cancelled";
   
+  // Extract team names with fallbacks
+  const homeTeamName = db.home_team?.name || db.home_team_name || "Domácí";
+  const awayTeamName = db.away_team?.name || db.away_team_name || "Hosté";
+  
   return {
     id: db.id,
     // Teams - ensure both home and away are always set
-    home: db.home_team?.name || db.home_team_name || "Domácí",
-    away: db.away_team_name || db.away_team?.name || "Hosté", // Try away_team relation first, then away_team_name
+    home: homeTeamName,
+    away: awayTeamName,
     homeTeamId: db.home_team_id || undefined,
     homeTeamName: db.home_team_name || undefined,
     awayTeamId: db.away_team_id || undefined,
