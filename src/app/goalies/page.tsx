@@ -3,14 +3,17 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Goalie } from "@/lib/types";
-import { getGoalies, saveGoalie, deleteGoalie, calculateGoalieStats } from "@/lib/storage";
+import type { Goalie, GoalieEvent } from "@/lib/types";
+import { getGoalies, saveGoalie, deleteGoalie, getEvents, calculateGoalieStats } from "@/lib/storage";
+import { getAllEvents } from "@/lib/repositories/events";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { useAutoSync } from "@/hooks/useAutoSync";
 
 export default function GoaliesPage() {
   const router = useRouter();
   const { syncNow } = useAutoSync();
   const [goalies, setGoalies] = useState<Goalie[]>([]);
+  const [allEvents, setAllEvents] = useState<GoalieEvent[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingGoalie, setEditingGoalie] = useState<Goalie | null>(null);
   const [form, setForm] = useState({
@@ -23,6 +26,24 @@ export default function GoaliesPage() {
 
   useEffect(() => {
     setGoalies(getGoalies());
+    
+    // Load events from Supabase if configured, otherwise from localStorage
+    const loadEvents = async () => {
+      if (isSupabaseConfigured()) {
+        try {
+          const events = await getAllEvents();
+          setAllEvents(events);
+        } catch (err) {
+          console.error("[GoaliesPage] Failed to load events from Supabase:", err);
+          // Fallback to localStorage
+          setAllEvents(getEvents());
+        }
+      } else {
+        setAllEvents(getEvents());
+      }
+    };
+    
+    loadEvents();
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -179,7 +200,7 @@ export default function GoaliesPage() {
         ) : (
           <div className="space-y-3">
             {goalies.map((goalie) => {
-              const stats = calculateGoalieStats(goalie.id);
+              const stats = calculateGoalieStats(goalie.id, undefined, undefined, allEvents);
               return (
                 <div
                   key={goalie.id}

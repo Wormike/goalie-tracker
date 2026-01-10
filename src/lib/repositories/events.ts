@@ -164,6 +164,33 @@ export async function getEventsForGoalie(goalieId: string): Promise<GoalieEvent[
 }
 
 /**
+ * Get all events (for all goalies, across all matches)
+ */
+export async function getAllEvents(): Promise<GoalieEvent[]> {
+  if (!isSupabaseConfigured() || !supabase) {
+    console.warn("[events] Supabase not configured, returning empty array");
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("goalie_events")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("[events] Error fetching all events:", error.message);
+      return [];
+    }
+
+    return (data || []).map(dbEventToAppEvent);
+  } catch (err) {
+    console.error("[events] Unexpected error:", err);
+    return [];
+  }
+}
+
+/**
  * Create a new event
  */
 export interface CreateEventPayload {

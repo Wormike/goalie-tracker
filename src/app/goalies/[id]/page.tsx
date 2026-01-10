@@ -10,6 +10,8 @@ import {
   getSeasons,
   calculateGoalieStats,
 } from "@/lib/storage";
+import { getEventsForGoalie } from "@/lib/repositories/events";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ShotHeatmap } from "@/components/ShotHeatmap";
 import { GoalHeatmap } from "@/components/GoalView";
 import { Select } from "@/components/ui/Select";
@@ -24,18 +26,41 @@ export default function GoalieDetailPage() {
   const [selectedSeason, setSelectedSeason] = useState<string>("all");
   const [selectedMatch, setSelectedMatch] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"stats" | "heatmap" | "goal">("stats");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const g = getGoalieById(params.id);
-    if (g) {
+    const loadData = async () => {
+      setLoading(true);
+      const g = getGoalieById(params.id);
+      if (!g) {
+        setLoading(false);
+        return;
+      }
+      
       setGoalie(g);
       const allMatches = getMatches().filter((m) => m.goalieId === params.id);
       setMatches(allMatches);
-      // Load all events for this goalie - calculateGoalieStats will filter by matches
-      const allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
-      setEvents(allEvents);
       setSeasons(getSeasons());
-    }
+      
+      // Load events from Supabase if configured, otherwise from localStorage
+      let allEvents: GoalieEvent[] = [];
+      if (isSupabaseConfigured()) {
+        try {
+          allEvents = await getEventsForGoalie(params.id);
+        } catch (err) {
+          console.error("[GoalieDetailPage] Failed to load events from Supabase:", err);
+          // Fallback to localStorage
+          allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
+        }
+      } else {
+        allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
+      }
+      
+      setEvents(allEvents);
+      setLoading(false);
+    };
+    
+    loadData();
   }, [params.id]);
 
   if (!goalie) {
@@ -48,10 +73,12 @@ export default function GoalieDetailPage() {
 
   // Don't filter by competition in stats - show all stats regardless of competition
   // This ensures all events are displayed even if matches don't have competitionId set
+  // Pass events from Supabase/localStorage to calculateGoalieStats
   const stats = calculateGoalieStats(
     goalie.id,
     selectedSeason === "all" ? undefined : selectedSeason,
-    undefined // Don't filter by competition - show all events
+    undefined, // Don't filter by competition - show all events
+    events // Pass loaded events (from Supabase or localStorage)
   );
 
   // Filter matches by season

@@ -370,20 +370,14 @@ export default function HomePage() {
   };
 
   // Filter matches by active competition first (if set), then by category
-  let filteredMatches = matches.filter((m) => {
-    // If activeCompetition is set, filter by competitionId or name/category match
+  const filteredMatches = matches.filter((m) => {
+    // If activeCompetition is set, filter strictly by competitionId or name/category match
     if (activeCompetition) {
       return matchesCompetition(m, activeCompetition);
     }
     // If no activeCompetition, filter by category only
     return categoryFilter ? m.category === categoryFilter : true;
   });
-
-  // Fallback: if filtering by activeCompetition returns no matches, show all matches
-  // This prevents empty page when matches exist but don't match competition filter
-  if (activeCompetition && filteredMatches.length === 0 && matches.length > 0) {
-    filteredMatches = matches;
-  }
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
@@ -1125,7 +1119,7 @@ export default function HomePage() {
                         </div>
                         <Link href={`/match/${m.id}`} className="block">
                           <div className="mt-1 text-sm font-semibold">
-                            {m.home} vs {m.away}
+                            {m.home || m.homeTeamName || "Domácí"} vs {m.away || m.awayTeamName || "Hosté"}
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
                             📅 {new Date(m.datetime).toLocaleString("cs-CZ")}
@@ -1205,7 +1199,7 @@ export default function HomePage() {
                         {/* Match info - takes remaining space */}
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-medium">
-                            {m.home} vs {m.away}
+                            {m.home || m.homeTeamName || "Domácí"} vs {m.away || m.awayTeamName || "Hosté"}
                           </div>
                           <div className="mt-0.5 text-xs text-slate-500">
                             {new Date(m.datetime).toLocaleDateString("cs-CZ")} • {m.category}

@@ -68,9 +68,9 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
   
   return {
     id: db.id,
-    // Teams
+    // Teams - ensure both home and away are always set
     home: db.home_team?.name || db.home_team_name || "Domácí",
-    away: db.away_team_name || "Hosté",
+    away: db.away_team_name || db.away_team?.name || "Hosté", // Try away_team relation first, then away_team_name
     homeTeamId: db.home_team_id || undefined,
     homeTeamName: db.home_team_name || undefined,
     awayTeamId: db.away_team_id || undefined,
@@ -177,6 +177,7 @@ export async function getMatches(): Promise<Match[]> {
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+        away_team:teams!matches_away_team_id_fkey(id, name, short_name),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .order("datetime", { ascending: false });
@@ -215,6 +216,7 @@ export async function getMatchById(id: string): Promise<Match | null> {
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+        away_team:teams!matches_away_team_id_fkey(id, name, short_name),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .eq("id", id)

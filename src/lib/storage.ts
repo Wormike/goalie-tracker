@@ -619,7 +619,8 @@ export function deleteExternalMapping(id: string): void {
 export function calculateGoalieStats(
   goalieId: string,
   seasonId?: string,
-  competitionId?: string
+  competitionId?: string,
+  allEvents?: GoalieEvent[] // Optional: pass events from Supabase if available
 ): GoalieSeasonStats {
   const matches = getMatches().filter(
     (m) =>
@@ -627,7 +628,8 @@ export function calculateGoalieStats(
       (!seasonId || m.seasonId === seasonId) &&
       (!competitionId || m.competitionId === competitionId)
   );
-  const events = getEvents().filter(
+  // Use provided events or fall back to localStorage
+  const events = (allEvents || getEvents()).filter(
     (e) => e.goalieId === goalieId && e.status !== "deleted"
   );
 

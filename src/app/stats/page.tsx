@@ -2,13 +2,16 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import type { Goalie, Season, Competition } from "@/lib/types";
+import type { Goalie, Season, Competition, GoalieEvent } from "@/lib/types";
 import {
   getGoalies,
   getSeasons,
   getCompetitions,
+  getEvents,
   calculateGoalieStats,
 } from "@/lib/storage";
+import { getAllEvents } from "@/lib/repositories/events";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 
 type SortKey = "name" | "games" | "shots" | "saves" | "goals" | "savePercentage";
 type SortOrder = "asc" | "desc";
@@ -17,6 +20,7 @@ export default function StatsPage() {
   const [goalies, setGoalies] = useState<Goalie[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [allEvents, setAllEvents] = useState<GoalieEvent[]>([]);
   const [selectedSeason, setSelectedSeason] = useState<string>("all");
   const [selectedCompetition, setSelectedCompetition] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("savePercentage");
@@ -26,6 +30,24 @@ export default function StatsPage() {
     setGoalies(getGoalies());
     setSeasons(getSeasons());
     setCompetitions(getCompetitions());
+    
+    // Load events from Supabase if configured, otherwise from localStorage
+    const loadEvents = async () => {
+      if (isSupabaseConfigured()) {
+        try {
+          const events = await getAllEvents();
+          setAllEvents(events);
+        } catch (err) {
+          console.error("[StatsPage] Failed to load events from Supabase:", err);
+          // Fallback to localStorage
+          setAllEvents(getEvents());
+        }
+      } else {
+        setAllEvents(getEvents());
+      }
+    };
+    
+    loadEvents();
   }, []);
 
   // Filter competitions by selected season
@@ -40,11 +62,12 @@ export default function StatsPage() {
       const stats = calculateGoalieStats(
         goalie.id,
         selectedSeason === "all" ? undefined : selectedSeason,
-        selectedCompetition === "all" ? undefined : selectedCompetition
+        selectedCompetition === "all" ? undefined : selectedCompetition,
+        allEvents // Pass events from Supabase/localStorage
       );
       return { goalie, stats };
     });
-  }, [goalies, selectedSeason, selectedCompetition]);
+  }, [goalies, selectedSeason, selectedCompetition, allEvents]);
 
   // Sort goalies
   const sortedGoalieStats = useMemo(() => {
