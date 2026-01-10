@@ -13,6 +13,8 @@ import {
   saveExternalMapping,
   findExternalMapping,
 } from "@/lib/storage";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { createMatch as createMatchSupabase } from "@/lib/repositories/matches";
 import { Select } from "@/components/ui/Select";
 import { useCompetition } from "@/contexts/CompetitionContext";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
@@ -209,17 +211,82 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         selectedMatchIds.has(m.id)
       );
 
-      selectedMatches.forEach((match) => {
-        const enrichedMatch: Match = {
-          ...match,
-          goalieId: selectedGoalieId || undefined,
-          competitionId: mappings.competitionId || undefined,
-          competitionIdManuallySet: false, // Imported matches are not manually set
-          homeTeamId: mappings.homeTeamId || undefined,
-        };
-        saveMatch(enrichedMatch);
-        importedCount++;
-      });
+      // Import matches - save to Supabase if configured, otherwise to localStorage
+      if (isSupabaseConfigured()) {
+        // Save to Supabase - process sequentially to avoid race conditions
+        for (const match of selectedMatches) {
+          try {
+            const enrichedMatch: Match = {
+              ...match,
+              goalieId: selectedGoalieId || undefined,
+              competitionId: mappings.competitionId || undefined,
+              competitionIdManuallySet: false, // Imported matches are not manually set
+              homeTeamId: mappings.homeTeamId || undefined,
+            };
+            
+            // Determine status based on match completion
+            let matchStatus: "scheduled" | "in_progress" | "completed" | "cancelled" = "scheduled";
+            if (enrichedMatch.completed || (enrichedMatch.homeScore !== undefined && enrichedMatch.awayScore !== undefined)) {
+              matchStatus = "completed";
+            } else if (enrichedMatch.status) {
+              matchStatus = enrichedMatch.status;
+            }
+            
+            const payload = {
+              home_team_id: enrichedMatch.homeTeamId || undefined,
+              home_team_name: enrichedMatch.home || enrichedMatch.homeTeamName || "HC Slovan Ústí n.L.",
+              away_team_name: enrichedMatch.away || enrichedMatch.awayTeamName || "Hosté",
+              datetime: enrichedMatch.datetime,
+              competition_id: enrichedMatch.competitionId || undefined,
+              season_id: enrichedMatch.seasonId || "2025-2026", // Keep as string, Supabase will handle it
+              venue: enrichedMatch.venue || undefined,
+              match_type: (enrichedMatch.matchType || "league") as "friendly" | "league" | "tournament" | "playoff" | "cup",
+              status: matchStatus,
+              goalie_id: enrichedMatch.goalieId || undefined,
+              home_score: enrichedMatch.homeScore ?? undefined,
+              away_score: enrichedMatch.awayScore ?? undefined,
+              source: enrichedMatch.source || "ceskyhokej",
+              external_id: enrichedMatch.externalId || undefined,
+              external_url: enrichedMatch.externalUrl || undefined,
+            };
+            
+            const created = await createMatchSupabase(payload);
+            if (created) {
+              importedCount++;
+            } else {
+              console.warn("[ImportWizard] Failed to create match in Supabase, falling back to localStorage");
+              // Fallback to localStorage
+              saveMatch(enrichedMatch);
+              importedCount++;
+            }
+          } catch (err) {
+            console.error("[ImportWizard] Error saving match to Supabase:", err);
+            // Fallback to localStorage
+            const enrichedMatch: Match = {
+              ...match,
+              goalieId: selectedGoalieId || undefined,
+              competitionId: mappings.competitionId || undefined,
+              competitionIdManuallySet: false,
+              homeTeamId: mappings.homeTeamId || undefined,
+            };
+            saveMatch(enrichedMatch);
+            importedCount++;
+          }
+        }
+      } else {
+        // Save to localStorage
+        selectedMatches.forEach((match) => {
+          const enrichedMatch: Match = {
+            ...match,
+            goalieId: selectedGoalieId || undefined,
+            competitionId: mappings.competitionId || undefined,
+            competitionIdManuallySet: false, // Imported matches are not manually set
+            homeTeamId: mappings.homeTeamId || undefined,
+          };
+          saveMatch(enrichedMatch);
+          importedCount++;
+        });
+      }
 
       onComplete(importedCount);
       
