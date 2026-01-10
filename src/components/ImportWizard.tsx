@@ -202,7 +202,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
     setStep(3);
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     setLoading(true);
 
     try {
