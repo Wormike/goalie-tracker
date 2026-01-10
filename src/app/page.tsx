@@ -164,13 +164,10 @@ export default function HomePage() {
         }
       }
       
-      // If match has no competitionId and no category, and activeCompetition is set,
-      // assign it to activeCompetition as a fallback (user can change it manually later)
-      // This helps with newly imported matches that don't have category set
-      if (!m.competitionId && !hasCategory && !isManuallySet) {
-        console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} to activeCompetition ${activeCompetition.id} (no category, no competitionId)`);
-        return { ...m, competitionId: activeCompetition.id, competitionIdManuallySet: false };
-      }
+      // Don't automatically assign matches without category to activeCompetition
+      // Users should manually assign these matches or they should be matched by category
+      // Automatic assignment was causing issues where matches from different competitions
+      // were incorrectly assigned to the currently active competition
       
       return m;
     });
@@ -205,6 +202,36 @@ export default function HomePage() {
         console.log(`[HomePage] Matches before assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
           uniqueMatches = assignCompetitionIds(uniqueMatches);
         console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
+        
+        // Delete matches without category and competitionId (they cannot be assigned and are useless)
+        const matchesToDelete = uniqueMatches.filter(m => {
+          const hasCategory = m.category && m.category.trim() !== "";
+          const hasCompetitionId = !!m.competitionId;
+          return !hasCategory && !hasCompetitionId;
+        });
+        
+        if (matchesToDelete.length > 0) {
+          console.log(`[HomePage] Found ${matchesToDelete.length} matches without category and competitionId - deleting them`);
+          for (const match of matchesToDelete) {
+            try {
+              if (isSupabaseConfigured()) {
+                await deleteMatchSupabase(match.id);
+              } else {
+                deleteMatchLocal(match.id);
+              }
+              // Also remove manually set flag if exists
+              saveManuallySetFlag(match.id, false);
+            } catch (err) {
+              console.error(`[HomePage] Failed to delete match ${match.id}:`, err);
+            }
+          }
+          // Remove deleted matches from the list
+          uniqueMatches = uniqueMatches.filter(m => {
+            const hasCategory = m.category && m.category.trim() !== "";
+            const hasCompetitionId = !!m.competitionId;
+            return hasCategory || hasCompetitionId;
+          });
+        }
         
         // Save competitionId updates back to database if changed and Supabase is configured
         // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
@@ -254,6 +281,33 @@ export default function HomePage() {
     let uniqueMatches = deduplicateMatches(localMatches);
     // Assign competitionId to matches that don't have it (respecting manual flags)
     uniqueMatches = assignCompetitionIds(uniqueMatches);
+    
+    // Delete matches without category and competitionId (they cannot be assigned and are useless)
+    const matchesToDelete = uniqueMatches.filter(m => {
+      const hasCategory = m.category && m.category.trim() !== "";
+      const hasCompetitionId = !!m.competitionId;
+      return !hasCategory && !hasCompetitionId;
+    });
+    
+    if (matchesToDelete.length > 0) {
+      console.log(`[HomePage] Found ${matchesToDelete.length} matches without category and competitionId - deleting them`);
+      for (const match of matchesToDelete) {
+        try {
+          deleteMatchLocal(match.id);
+          // Also remove manually set flag if exists
+          saveManuallySetFlag(match.id, false);
+        } catch (err) {
+          console.error(`[HomePage] Failed to delete match ${match.id}:`, err);
+        }
+      }
+      // Remove deleted matches from the list
+      uniqueMatches = uniqueMatches.filter(m => {
+        const hasCategory = m.category && m.category.trim() !== "";
+        const hasCompetitionId = !!m.competitionId;
+        return hasCategory || hasCompetitionId;
+      });
+    }
+    
     setMatches(uniqueMatches);
     setDataSource("local");
     setLoading(false);
@@ -493,11 +547,11 @@ export default function HomePage() {
         const hasCompetitionId = !!m.competitionId;
         
         // If match has no competitionId and no category, it's truly unassigned
-        // Only show unassigned matches if we want to allow manual assignment (for now, hide them to avoid confusion)
-        // TODO: Could add a UI toggle to show/hide unassigned matches
+        // These matches cannot be automatically assigned and should be deleted or manually assigned
+        // For now, hide them to avoid confusion - they can be manually assigned via match detail page
         if (!hasCompetitionId && !hasCategory) {
-          console.log(`[HomePage] Match ${m.id} filtered out: truly unassigned (no competitionId, no category)`);
-          return false; // Hide unassigned matches - they should be assigned first via import or manual assignment
+          console.log(`[HomePage] Match ${m.id} filtered out: truly unassigned (no competitionId, no category) - should be deleted or manually assigned`);
+          return false; // Hide unassigned matches - they should be deleted or manually assigned
         }
         
         const matches = matchesCompetition(m, activeCompetition);
