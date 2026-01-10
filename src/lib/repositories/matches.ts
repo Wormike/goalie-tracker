@@ -25,7 +25,7 @@ export interface DbMatch {
   home_team_name: string | null;
   away_team_id: string | null;
   away_team_name: string | null;
-  competition: string | null; // Legacy: competition name (TEXT)
+  competition?: string | null; // Legacy: competition name (TEXT) - optional, may not exist in all schemas
   competition_id: string | null; // FK to competitions table (UUID)
   season_id: string | null;
   datetime: string;
@@ -133,10 +133,11 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
     payload.away_team_name = match.awayTeamName || match.away || null;
   }
   if (match.datetime !== undefined) payload.datetime = match.datetime;
-  if (match.category !== undefined || match.competitionId !== undefined) {
-    // Save category as competition (legacy TEXT field) for filtering
-    payload.competition = match.category || null;
-  }
+  // Skip competition (TEXT) field - it's not in the production schema
+  // Category is stored in app Match type and used for filtering, but not persisted to DB
+  // if (match.category !== undefined) {
+  //   payload.competition = match.category || null;
+  // }
   if (match.competitionId !== undefined) {
     payload.competition_id = isUuid(match.competitionId) ? match.competitionId : null;
   }
@@ -257,7 +258,8 @@ export interface CreateMatchPayload {
   away_team_id?: string;
   away_team_name: string;
   datetime: string;
-  competition?: string; // Legacy: competition name (TEXT)
+  // Note: competition (TEXT) field removed - not in production schema
+  // Category is stored in app Match type for filtering, but not persisted to DB
   competition_id?: string; // FK to competitions table (UUID)
   season_id?: string;
   venue?: string;
@@ -282,13 +284,12 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
   }
 
   try {
-    const cleanPayload = {
+    const cleanPayload: Record<string, unknown> = {
       home_team_id: isUuid(payload.home_team_id) ? payload.home_team_id : null,
       home_team_name: payload.home_team_name || null,
       away_team_id: isUuid(payload.away_team_id) ? payload.away_team_id : null,
       away_team_name: payload.away_team_name,
       datetime: payload.datetime,
-      competition: payload.competition || null, // Legacy: competition name (TEXT)
       competition_id: isUuid(payload.competition_id) ? payload.competition_id : null, // FK to competitions table
       season_id: isUuid(payload.season_id) ? payload.season_id : null,
       venue: payload.venue || null,
@@ -304,6 +305,12 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       external_id: payload.external_id || null,
       external_url: payload.external_url || null,
     };
+    
+    // Only add competition (TEXT) if it exists in schema - check if column exists
+    // For now, we'll skip it since it's not in the production schema
+    // if (payload.competition) {
+    //   cleanPayload.competition = payload.competition;
+    // }
 
     const { data, error } = await supabase
       .from("matches")
@@ -349,7 +356,8 @@ export async function updateMatch(
     if (payload.away_team_id !== undefined) updatePayload.away_team_id = payload.away_team_id || null;
     if (payload.away_team_name !== undefined) updatePayload.away_team_name = payload.away_team_name;
     if (payload.datetime !== undefined) updatePayload.datetime = payload.datetime;
-    if (payload.competition !== undefined) updatePayload.competition = payload.competition || null; // Legacy: competition name
+    // Skip competition (TEXT) field - it's not in the production schema
+    // if (payload.competition !== undefined) updatePayload.competition = payload.competition || null;
     if (payload.competition_id !== undefined) updatePayload.competition_id = payload.competition_id || null;
     if (payload.season_id !== undefined) updatePayload.season_id = payload.season_id || null;
     if (payload.venue !== undefined) updatePayload.venue = payload.venue || null;
