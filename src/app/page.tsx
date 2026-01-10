@@ -1,6 +1,6 @@
 "use client";
 import type { CompetitionStandings } from "@/lib/types";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Match, Goalie } from "@/lib/types";
@@ -315,14 +315,39 @@ export default function HomePage() {
     };
   }, []);
 
-  // Reload matches when activeCompetition changes to reassign competitionIds
+  // Reassign competitionIds when activeCompetition changes
+  // This effect runs when activeCompetition changes, not when matches change
   useEffect(() => {
     if (matches.length > 0) {
+      console.log(`[HomePage] activeCompetition changed to: ${activeCompetition?.name || 'none'} (${activeCompetition?.id || 'none'}), reassigning competitionIds...`);
       // Reassign competitionIds to existing matches when activeCompetition changes
-      const reassignedMatches = assignCompetitionIds(matches);
-      setMatches(reassignedMatches);
+      // Always create new array with new object references to ensure React sees the change
+      const reassignedMatches = assignCompetitionIds(matches.map(m => ({ ...m })));
+      
+      // Check if any competitionIds actually changed
+      const hasChanges = matches.some((m, i) => m.competitionId !== reassignedMatches[i].competitionId);
+      
+      if (hasChanges || activeCompetition) {
+        // Update matches state to trigger filtering recalculation
+        // Even if no changes, we need to trigger re-filtering for the new activeCompetition
+        console.log(`[HomePage] Updating matches state (hasChanges: ${hasChanges})`);
+        setMatches(reassignedMatches);
+        
+        // Save competitionId updates back to database if changed (async, don't wait)
+        if (isSupabaseConfigured() && activeCompetition && hasChanges) {
+          reassignedMatches.forEach((match, i) => {
+            const oldMatch = matches[i];
+            if (match.competitionId && match.competitionId !== oldMatch.competitionId && !match.competitionIdManuallySet) {
+              updateMatchSupabase(match.id, { competition_id: match.competitionId }).catch(err => {
+                console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
+              });
+            }
+          });
+        }
+      }
     }
-  }, [activeCompetition?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCompetition?.id]); // Only depend on activeCompetition.id, not matches (to avoid infinite loop)
 
   // Get unique categories from matches
   const categories = Array.from(
@@ -405,29 +430,32 @@ export default function HomePage() {
   };
 
   // Filter matches by active competition first (if set), then by category
-  // If activeCompetition is set but match has no competitionId and no category, show it anyway (to allow assignment)
-  const filteredMatches = matches.filter((m) => {
-    // If activeCompetition is set, filter by competitionId or name/category match
-    if (activeCompetition) {
-      // If match has no competitionId and no category, show it (to allow manual assignment)
-      if (!m.competitionId && !m.category) {
-        return true; // Show unassigned matches when competition is selected
+  // Use useMemo to ensure filtering recalculates when activeCompetition or matches change
+  const filteredMatches = useMemo(() => {
+    const filtered = matches.filter((m) => {
+      // If activeCompetition is set, filter by competitionId or name/category match
+      if (activeCompetition) {
+        // If match has no competitionId and no category, show it (to allow manual assignment)
+        if (!m.competitionId && !m.category) {
+          return true; // Show unassigned matches when competition is selected
+        }
+        const matches = matchesCompetition(m, activeCompetition);
+        if (!matches) {
+          console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
+        }
+        return matches;
       }
-      const matches = matchesCompetition(m, activeCompetition);
-      if (!matches) {
-        console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
+      // If no activeCompetition, filter by category only
+      const result = categoryFilter ? m.category === categoryFilter : true;
+      if (!result) {
+        console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", categoryFilter="${categoryFilter}"`);
       }
-      return matches;
-    }
-    // If no activeCompetition, filter by category only
-    const result = categoryFilter ? m.category === categoryFilter : true;
-    if (!result) {
-      console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", categoryFilter="${categoryFilter}"`);
-    }
-    return result;
-  });
-  
-  console.log(`[HomePage] Filtering: ${matches.length} total matches, ${filteredMatches.length} after filter, activeCompetition=${activeCompetition?.name || 'none'}, categoryFilter=${categoryFilter || 'none'}`);
+      return result;
+    });
+    
+    console.log(`[HomePage] Filtering: ${matches.length} total matches, ${filtered.length} after filter, activeCompetition=${activeCompetition?.name || 'none'}, categoryFilter=${categoryFilter || 'none'}`);
+    return filtered;
+  }, [matches, activeCompetition, categoryFilter]);
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
