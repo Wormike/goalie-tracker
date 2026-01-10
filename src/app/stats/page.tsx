@@ -7,11 +7,14 @@ import {
   getGoalies,
   getSeasons,
   getCompetitions,
+  getMatches,
   getEvents,
   calculateGoalieStats,
 } from "@/lib/storage";
 import { getAllEvents } from "@/lib/repositories/events";
+import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import type { Match } from "@/lib/types";
 
 type SortKey = "name" | "games" | "shots" | "saves" | "goals" | "savePercentage";
 type SortOrder = "asc" | "desc";
@@ -26,28 +29,36 @@ export default function StatsPage() {
   const [sortKey, setSortKey] = useState<SortKey>("savePercentage");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
+  const [allMatches, setAllMatches] = useState<Match[]>([]);
+
   useEffect(() => {
     setGoalies(getGoalies());
     setSeasons(getSeasons());
     setCompetitions(getCompetitions());
     
-    // Load events from Supabase if configured, otherwise from localStorage
-    const loadEvents = async () => {
+    // Load matches and events from Supabase if configured, otherwise from localStorage
+    const loadData = async () => {
       if (isSupabaseConfigured()) {
         try {
-          const events = await getAllEvents();
+          const [events, matches] = await Promise.all([
+            getAllEvents(),
+            getMatchesSupabase(),
+          ]);
           setAllEvents(events);
+          setAllMatches(matches);
         } catch (err) {
-          console.error("[StatsPage] Failed to load events from Supabase:", err);
+          console.error("[StatsPage] Failed to load data from Supabase:", err);
           // Fallback to localStorage
           setAllEvents(getEvents());
+          setAllMatches(getMatches());
         }
       } else {
         setAllEvents(getEvents());
+        setAllMatches(getMatches());
       }
     };
     
-    loadEvents();
+    loadData();
   }, []);
 
   // Filter competitions by selected season
@@ -63,11 +74,12 @@ export default function StatsPage() {
         goalie.id,
         selectedSeason === "all" ? undefined : selectedSeason,
         selectedCompetition === "all" ? undefined : selectedCompetition,
-        allEvents // Pass events from Supabase/localStorage
+        allEvents, // Pass events from Supabase/localStorage
+        allMatches // Pass matches from Supabase/localStorage
       );
       return { goalie, stats };
     });
-  }, [goalies, selectedSeason, selectedCompetition, allEvents]);
+  }, [goalies, selectedSeason, selectedCompetition, allEvents, allMatches]);
 
   // Sort goalies
   const sortedGoalieStats = useMemo(() => {

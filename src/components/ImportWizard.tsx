@@ -237,7 +237,8 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
               home_team_name: enrichedMatch.home || enrichedMatch.homeTeamName || "HC Slovan Ústí n.L.",
               away_team_name: enrichedMatch.away || enrichedMatch.awayTeamName || "Hosté",
               datetime: enrichedMatch.datetime,
-              competition_id: enrichedMatch.competitionId || undefined,
+              competition: enrichedMatch.category || undefined, // Legacy: competition name (TEXT) - use category from imported match
+              competition_id: enrichedMatch.competitionId || undefined, // FK to competitions table
               season_id: enrichedMatch.seasonId || "2025-2026", // Keep as string, Supabase will handle it
               venue: enrichedMatch.venue || undefined,
               match_type: (enrichedMatch.matchType || "league") as "friendly" | "league" | "tournament" | "playoff" | "cup",

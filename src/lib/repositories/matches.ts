@@ -25,7 +25,8 @@ export interface DbMatch {
   home_team_name: string | null;
   away_team_id: string | null;
   away_team_name: string | null;
-  competition_id: string | null;
+  competition: string | null; // Legacy: competition name (TEXT)
+  competition_id: string | null; // FK to competitions table (UUID)
   season_id: string | null;
   datetime: string;
   venue: string | null;
@@ -85,9 +86,9 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
     awayTeamId: db.away_team_id || undefined,
     awayTeamName: db.away_team_name || undefined,
     // Classification
-    category: db.competition_id || "", // Legacy field
+    category: db.competition || "", // Legacy field - use competition name (TEXT) if available
     matchType: (db.match_type || "friendly") as MatchType,
-    competitionId: db.competition_id || undefined,
+    competitionId: db.competition_id || undefined, // FK to competitions table
     competitionIdManuallySet: undefined, // Will be loaded from metadata if needed
     seasonId: db.season_id || "",
     // Timing
@@ -132,6 +133,10 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
     payload.away_team_name = match.awayTeamName || match.away || null;
   }
   if (match.datetime !== undefined) payload.datetime = match.datetime;
+  if (match.category !== undefined || match.competitionId !== undefined) {
+    // Save category as competition (legacy TEXT field) for filtering
+    payload.competition = match.category || null;
+  }
   if (match.competitionId !== undefined) {
     payload.competition_id = isUuid(match.competitionId) ? match.competitionId : null;
   }
@@ -252,7 +257,8 @@ export interface CreateMatchPayload {
   away_team_id?: string;
   away_team_name: string;
   datetime: string;
-  competition_id?: string;
+  competition?: string; // Legacy: competition name (TEXT)
+  competition_id?: string; // FK to competitions table (UUID)
   season_id?: string;
   venue?: string;
   match_type?: "friendly" | "league" | "tournament" | "playoff" | "cup";
@@ -282,7 +288,8 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       away_team_id: isUuid(payload.away_team_id) ? payload.away_team_id : null,
       away_team_name: payload.away_team_name,
       datetime: payload.datetime,
-      competition_id: isUuid(payload.competition_id) ? payload.competition_id : null,
+      competition: payload.competition || null, // Legacy: competition name (TEXT)
+      competition_id: isUuid(payload.competition_id) ? payload.competition_id : null, // FK to competitions table
       season_id: isUuid(payload.season_id) ? payload.season_id : null,
       venue: payload.venue || null,
       match_type: payload.match_type || "friendly",
@@ -342,6 +349,7 @@ export async function updateMatch(
     if (payload.away_team_id !== undefined) updatePayload.away_team_id = payload.away_team_id || null;
     if (payload.away_team_name !== undefined) updatePayload.away_team_name = payload.away_team_name;
     if (payload.datetime !== undefined) updatePayload.datetime = payload.datetime;
+    if (payload.competition !== undefined) updatePayload.competition = payload.competition || null; // Legacy: competition name
     if (payload.competition_id !== undefined) updatePayload.competition_id = payload.competition_id || null;
     if (payload.season_id !== undefined) updatePayload.season_id = payload.season_id || null;
     if (payload.venue !== undefined) updatePayload.venue = payload.venue || null;
@@ -364,6 +372,7 @@ export async function updateMatch(
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+        away_team:teams!matches_away_team_id_fkey(id, name, short_name),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .single();

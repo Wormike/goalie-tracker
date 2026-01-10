@@ -620,9 +620,11 @@ export function calculateGoalieStats(
   goalieId: string,
   seasonId?: string,
   competitionId?: string,
-  allEvents?: GoalieEvent[] // Optional: pass events from Supabase if available
+  allEvents?: GoalieEvent[], // Optional: pass events from Supabase if available
+  allMatches?: Match[] // Optional: pass matches from Supabase if available
 ): GoalieSeasonStats {
-  const matches = getMatches().filter(
+  // Use provided matches or fall back to localStorage
+  const matches = (allMatches || getMatches()).filter(
     (m) =>
       m.goalieId === goalieId &&
       (!seasonId || m.seasonId === seasonId) &&

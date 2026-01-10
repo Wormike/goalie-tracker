@@ -5,12 +5,13 @@ import { useRouter, useParams } from "next/navigation";
 import type { Goalie, GoalieEvent, Match, Season } from "@/lib/types";
 import {
   getGoalieById,
-  getMatches,
+  getMatches as getMatchesLocal,
   getEvents,
   getSeasons,
   calculateGoalieStats,
 } from "@/lib/storage";
 import { getEventsForGoalie } from "@/lib/repositories/events";
+import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ShotHeatmap } from "@/components/ShotHeatmap";
 import { GoalHeatmap } from "@/components/GoalView";
@@ -38,7 +39,21 @@ export default function GoalieDetailPage() {
       }
       
       setGoalie(g);
-      const allMatches = getMatches().filter((m) => m.goalieId === params.id);
+      
+      // Load matches from Supabase if configured, otherwise from localStorage
+      let allMatches: Match[] = [];
+      if (isSupabaseConfigured()) {
+        try {
+          const supabaseMatches = await getMatchesSupabase();
+          allMatches = supabaseMatches.filter((m) => m.goalieId === params.id);
+        } catch (err) {
+          console.error("[GoalieDetailPage] Failed to load matches from Supabase:", err);
+          // Fallback to localStorage
+          allMatches = getMatchesLocal().filter((m) => m.goalieId === params.id);
+        }
+      } else {
+        allMatches = getMatchesLocal().filter((m) => m.goalieId === params.id);
+      }
       setMatches(allMatches);
       setSeasons(getSeasons());
       
@@ -73,12 +88,13 @@ export default function GoalieDetailPage() {
 
   // Don't filter by competition in stats - show all stats regardless of competition
   // This ensures all events are displayed even if matches don't have competitionId set
-  // Pass events from Supabase/localStorage to calculateGoalieStats
+  // Pass events and matches from Supabase/localStorage to calculateGoalieStats
   const stats = calculateGoalieStats(
     goalie.id,
     selectedSeason === "all" ? undefined : selectedSeason,
     undefined, // Don't filter by competition - show all events
-    events // Pass loaded events (from Supabase or localStorage)
+    events, // Pass loaded events (from Supabase or localStorage)
+    matches // Pass loaded matches (from Supabase or localStorage)
   );
 
   // Filter matches by season

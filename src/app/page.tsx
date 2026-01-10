@@ -15,6 +15,7 @@ import {
 import {
   getMatches as getMatchesSupabase,
   deleteMatch as deleteMatchSupabase,
+  updateMatch as updateMatchSupabase,
 } from "@/lib/repositories/matches";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ManualStatsModal } from "@/components/ManualStatsModal";
@@ -177,8 +178,27 @@ export default function HomePage() {
           ...m,
           competitionIdManuallySet: manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet,
         }));
+        
         // Assign competitionId to matches that don't have it (respecting manual flags)
+        const beforeAssign = uniqueMatches.map(m => m.competitionId);
         uniqueMatches = assignCompetitionIds(uniqueMatches);
+        
+        // Save competitionId updates back to database if changed and Supabase is configured
+        if (isSupabaseConfigured()) {
+          for (let i = 0; i < uniqueMatches.length; i++) {
+            const match = uniqueMatches[i];
+            const oldCompetitionId = beforeAssign[i];
+            // If competitionId was assigned/updated and match wasn't manually set, save to DB
+            if (match.competitionId && match.competitionId !== oldCompetitionId && !match.competitionIdManuallySet) {
+              try {
+                await updateMatchSupabase(match.id, { competition_id: match.competitionId });
+              } catch (err) {
+                console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
+              }
+            }
+          }
+        }
+        
         setMatches(uniqueMatches);
         setDataSource("supabase");
         setLoading(false);

@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { Goalie, GoalieEvent } from "@/lib/types";
-import { getGoalies, saveGoalie, deleteGoalie, getEvents, calculateGoalieStats } from "@/lib/storage";
+import type { Goalie, GoalieEvent, Match } from "@/lib/types";
+import { getGoalies, saveGoalie, deleteGoalie, getMatches, getEvents, calculateGoalieStats } from "@/lib/storage";
 import { getAllEvents } from "@/lib/repositories/events";
+import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { useAutoSync } from "@/hooks/useAutoSync";
 
@@ -14,6 +15,7 @@ export default function GoaliesPage() {
   const { syncNow } = useAutoSync();
   const [goalies, setGoalies] = useState<Goalie[]>([]);
   const [allEvents, setAllEvents] = useState<GoalieEvent[]>([]);
+  const [allMatches, setAllMatches] = useState<Match[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingGoalie, setEditingGoalie] = useState<Goalie | null>(null);
   const [form, setForm] = useState({
@@ -27,23 +29,29 @@ export default function GoaliesPage() {
   useEffect(() => {
     setGoalies(getGoalies());
     
-    // Load events from Supabase if configured, otherwise from localStorage
-    const loadEvents = async () => {
+    // Load matches and events from Supabase if configured, otherwise from localStorage
+    const loadData = async () => {
       if (isSupabaseConfigured()) {
         try {
-          const events = await getAllEvents();
+          const [events, matches] = await Promise.all([
+            getAllEvents(),
+            getMatchesSupabase(),
+          ]);
           setAllEvents(events);
+          setAllMatches(matches);
         } catch (err) {
-          console.error("[GoaliesPage] Failed to load events from Supabase:", err);
+          console.error("[GoaliesPage] Failed to load data from Supabase:", err);
           // Fallback to localStorage
           setAllEvents(getEvents());
+          setAllMatches(getMatches());
         }
       } else {
         setAllEvents(getEvents());
+        setAllMatches(getMatches());
       }
     };
     
-    loadEvents();
+    loadData();
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -200,7 +208,7 @@ export default function GoaliesPage() {
         ) : (
           <div className="space-y-3">
             {goalies.map((goalie) => {
-              const stats = calculateGoalieStats(goalie.id, undefined, undefined, allEvents);
+              const stats = calculateGoalieStats(goalie.id, undefined, undefined, allEvents, allMatches);
               return (
                 <div
                   key={goalie.id}
