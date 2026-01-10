@@ -52,6 +52,11 @@ export interface DbMatch {
     name: string;
     short_name: string | null;
   } | null;
+  competition_relation?: {
+    id: string;
+    name: string;
+    category: string | null;
+  } | null;
   goalie?: {
     id: string;
     first_name: string;
@@ -86,7 +91,8 @@ export function dbMatchToAppMatch(db: DbMatch): Match {
     awayTeamId: db.away_team_id || undefined,
     awayTeamName: db.away_team_name || undefined,
     // Classification
-    category: db.competition || "", // Legacy field - use competition name (TEXT) if available
+    // Use category from competition relation, or legacy competition field, or empty
+    category: db.competition_relation?.category || db.competition_relation?.name || db.competition || "",
     matchType: (db.match_type || "friendly") as MatchType,
     competitionId: db.competition_id || undefined, // FK to competitions table
     competitionIdManuallySet: undefined, // Will be loaded from metadata if needed
@@ -193,6 +199,7 @@ export async function getMatches(): Promise<Match[]> {
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
         away_team:teams!matches_away_team_id_fkey(id, name, short_name),
+        competition_relation:competitions!matches_competition_id_fkey(id, name, category),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .order("datetime", { ascending: false });
@@ -232,6 +239,7 @@ export async function getMatchById(id: string): Promise<Match | null> {
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
         away_team:teams!matches_away_team_id_fkey(id, name, short_name),
+        competition_relation:competitions!matches_competition_id_fkey(id, name, category),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .eq("id", id)
@@ -381,6 +389,7 @@ export async function updateMatch(
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
         away_team:teams!matches_away_team_id_fkey(id, name, short_name),
+        competition_relation:competitions!matches_competition_id_fkey(id, name, category),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .single();

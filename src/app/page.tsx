@@ -405,9 +405,14 @@ export default function HomePage() {
   };
 
   // Filter matches by active competition first (if set), then by category
+  // If activeCompetition is set but match has no competitionId and no category, show it anyway (to allow assignment)
   const filteredMatches = matches.filter((m) => {
-    // If activeCompetition is set, filter strictly by competitionId or name/category match
+    // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
+      // If match has no competitionId and no category, show it (to allow manual assignment)
+      if (!m.competitionId && !m.category) {
+        return true; // Show unassigned matches when competition is selected
+      }
       const matches = matchesCompetition(m, activeCompetition);
       if (!matches) {
         console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
