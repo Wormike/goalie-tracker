@@ -57,7 +57,10 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
   }
 
   const handleSelect = (id: string) => {
+    console.log(`[CompetitionSwitcher] handleSelect called with id: ${id}`);
+    console.log(`[CompetitionSwitcher] Current activeCompetition:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null');
     setActiveCompetitionId(id);
+    console.log(`[CompetitionSwitcher] setActiveCompetitionId(${id}) called`);
     setIsOpen(false);
   };
 

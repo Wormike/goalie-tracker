@@ -125,18 +125,28 @@ export function CompetitionProvider({ children }: CompetitionProviderProps) {
   const activeCompetition = competitions.find(c => c.id === activeCompetitionId) || null;
   const hasCompetitions = competitions.length > 0;
   const needsOnboarding = isHydrated && !isLoading && !hasCompetitions;
+  
+  // Debug: Log activeCompetition changes
+  useEffect(() => {
+    console.log(`[CompetitionContext] activeCompetition derived state:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null', `activeCompetitionId: ${activeCompetitionId}`);
+  }, [activeCompetition?.id, activeCompetition?.name, activeCompetitionId]);
 
   // ─────────────────────────────────────────────────────────────────────────
   // Actions
   // ─────────────────────────────────────────────────────────────────────────
   
   const setActiveCompetitionId = useCallback((id: string) => {
+    console.log(`[CompetitionContext] setActiveCompetitionId called with id: ${id}`);
     // Verify competition exists
     const exists = competitions.some(c => c.id === id);
+    console.log(`[CompetitionContext] Competition exists: ${exists}, current activeCompetitionId: ${activeCompetitionId}`);
     if (exists) {
+      console.log(`[CompetitionContext] Setting activeCompetitionIdState to: ${id}`);
       setActiveCompetitionIdState(id);
+    } else {
+      console.warn(`[CompetitionContext] Competition with id ${id} not found in competitions array`);
     }
-  }, [competitions]);
+  }, [competitions, activeCompetitionId]);
 
   const addCompetition = useCallback((data: Omit<UserCompetition, 'id' | 'createdAt'>): UserCompetition => {
     const newCompetition: UserCompetition = {

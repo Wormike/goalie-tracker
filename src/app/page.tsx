@@ -30,6 +30,11 @@ export default function HomePage() {
   const { activeCompetition, hasCompetitions } = useCompetition();
   const pathname = usePathname();
   
+  // Debug: Log activeCompetition changes
+  useEffect(() => {
+    console.log(`[HomePage] activeCompetition changed:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null');
+  }, [activeCompetition?.id, activeCompetition?.name]);
+  
   const [matches, setMatches] = useState<Match[]>([]);
   const [goalies, setGoalies] = useState<Goalie[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -174,8 +179,8 @@ export default function HomePage() {
         console.log(`[HomePage] Loaded ${supabaseMatches.length} matches from Supabase:`, supabaseMatches);
         
         // Always use Supabase if configured, even if empty (to show deleted matches are gone)
-        // Deduplicate matches by ID and externalId
-        let uniqueMatches = deduplicateMatches(supabaseMatches);
+          // Deduplicate matches by ID and externalId
+          let uniqueMatches = deduplicateMatches(supabaseMatches);
         console.log(`[HomePage] After deduplication: ${uniqueMatches.length} matches`);
         
         // Load manually set flags and merge with matches
@@ -189,7 +194,7 @@ export default function HomePage() {
         const beforeAssign = uniqueMatches.map(m => m.competitionId);
         console.log(`[HomePage] Active competition:`, activeCompetition);
         console.log(`[HomePage] Matches before assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
-        uniqueMatches = assignCompetitionIds(uniqueMatches);
+          uniqueMatches = assignCompetitionIds(uniqueMatches);
         console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
         
         // Save competitionId updates back to database if changed and Supabase is configured
@@ -210,10 +215,10 @@ export default function HomePage() {
         }
         
         console.log(`[HomePage] Setting ${uniqueMatches.length} matches to state`);
-        setMatches(uniqueMatches);
-        setDataSource("supabase");
-        setLoading(false);
-        return;
+          setMatches(uniqueMatches);
+          setDataSource("supabase");
+          setLoading(false);
+          return;
       } catch (err) {
         console.error("[HomePage] Failed to load from Supabase:", err);
       }
@@ -318,6 +323,12 @@ export default function HomePage() {
   // Reassign competitionIds when activeCompetition changes
   // This effect runs when activeCompetition changes, not when matches change
   useEffect(() => {
+    console.log(`[HomePage] useEffect triggered for activeCompetition change:`, {
+      activeCompetitionId: activeCompetition?.id || 'null',
+      activeCompetitionName: activeCompetition?.name || 'null',
+      matchesCount: matches.length
+    });
+    
     if (matches.length > 0) {
       console.log(`[HomePage] activeCompetition changed to: ${activeCompetition?.name || 'none'} (${activeCompetition?.id || 'none'}), reassigning competitionIds...`);
       // Reassign competitionIds to existing matches when activeCompetition changes
@@ -327,11 +338,13 @@ export default function HomePage() {
       // Check if any competitionIds actually changed
       const hasChanges = matches.some((m, i) => m.competitionId !== reassignedMatches[i].competitionId);
       
+      console.log(`[HomePage] Reassignment result: hasChanges=${hasChanges}, reassignedMatches.length=${reassignedMatches.length}`);
+      
       if (hasChanges || activeCompetition) {
         // Update matches state to trigger filtering recalculation
         // Even if no changes, we need to trigger re-filtering for the new activeCompetition
-        console.log(`[HomePage] Updating matches state (hasChanges: ${hasChanges})`);
-        setMatches(reassignedMatches);
+        console.log(`[HomePage] Updating matches state (hasChanges: ${hasChanges}, activeCompetition: ${!!activeCompetition})`);
+      setMatches(reassignedMatches);
         
         // Save competitionId updates back to database if changed (async, don't wait)
         if (isSupabaseConfigured() && activeCompetition && hasChanges) {
@@ -344,7 +357,11 @@ export default function HomePage() {
             }
           });
         }
+      } else {
+        console.log(`[HomePage] No changes detected and no activeCompetition, skipping update`);
       }
+    } else {
+      console.log(`[HomePage] No matches to process (matches.length = 0)`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCompetition?.id]); // Only depend on activeCompetition.id, not matches (to avoid infinite loop)
@@ -432,20 +449,29 @@ export default function HomePage() {
   // Filter matches by active competition first (if set), then by category
   // Use useMemo to ensure filtering recalculates when activeCompetition or matches change
   const filteredMatches = useMemo(() => {
+    console.log(`[HomePage] useMemo filteredMatches recalculating...`, {
+      matchesCount: matches.length,
+      activeCompetition: activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null',
+      categoryFilter: categoryFilter || 'none'
+    });
+    
     const filtered = matches.filter((m) => {
-      // If activeCompetition is set, filter by competitionId or name/category match
-      if (activeCompetition) {
+    // If activeCompetition is set, filter by competitionId or name/category match
+    if (activeCompetition) {
         // If match has no competitionId and no category, show it (to allow manual assignment)
         if (!m.competitionId && !m.category) {
+          console.log(`[HomePage] Match ${m.id} included (no competitionId, no category)`);
           return true; // Show unassigned matches when competition is selected
         }
         const matches = matchesCompetition(m, activeCompetition);
         if (!matches) {
           console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
+        } else {
+          console.log(`[HomePage] Match ${m.id} included: category="${m.category}", competitionId="${m.competitionId}", matches competition`);
         }
         return matches;
-      }
-      // If no activeCompetition, filter by category only
+    }
+    // If no activeCompetition, filter by category only
       const result = categoryFilter ? m.category === categoryFilter : true;
       if (!result) {
         console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", categoryFilter="${categoryFilter}"`);
@@ -453,7 +479,7 @@ export default function HomePage() {
       return result;
     });
     
-    console.log(`[HomePage] Filtering: ${matches.length} total matches, ${filtered.length} after filter, activeCompetition=${activeCompetition?.name || 'none'}, categoryFilter=${categoryFilter || 'none'}`);
+    console.log(`[HomePage] Filtering result: ${matches.length} total matches, ${filtered.length} after filter, activeCompetition=${activeCompetition?.name || 'none'} (${activeCompetition?.id || 'none'}), categoryFilter=${categoryFilter || 'none'}`);
     return filtered;
   }, [matches, activeCompetition, categoryFilter]);
 
@@ -738,7 +764,7 @@ export default function HomePage() {
     }
     
     // Also delete from localStorage if exists there
-    deleteMatchLocal(deletingMatch.id);
+      deleteMatchLocal(deletingMatch.id);
     
     // Remove manually set flag if exists
     if (typeof window !== 'undefined') {
@@ -773,7 +799,7 @@ export default function HomePage() {
     }
     
     // Also delete from localStorage
-    filteredMatches.forEach((m) => deleteMatchLocal(m.id));
+      filteredMatches.forEach((m) => deleteMatchLocal(m.id));
     
     // Remove manually set flags
     if (typeof window !== 'undefined') {
