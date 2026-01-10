@@ -207,17 +207,26 @@ export default function HomePage() {
         console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
         
         // Save competitionId updates back to database if changed and Supabase is configured
+        // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
         if (isSupabaseConfigured()) {
           for (let i = 0; i < uniqueMatches.length; i++) {
             const match = uniqueMatches[i];
             const oldCompetitionId = beforeAssign[i];
             // If competitionId was assigned/updated and match wasn't manually set, save to DB
+            // Only save if competitionId is a valid UUID (Supabase requires UUID, not local IDs)
             if (match.competitionId && match.competitionId !== oldCompetitionId && !match.competitionIdManuallySet) {
-              try {
-                console.log(`[HomePage] Updating competitionId for match ${match.id}: ${oldCompetitionId} -> ${match.competitionId}`);
-                await updateMatchSupabase(match.id, { competition_id: match.competitionId });
-              } catch (err) {
-                console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
+              // Check if competitionId is a valid UUID (Supabase competitions table uses UUIDs)
+              // Local UserCompetition IDs (like "comp-xxx") are not UUIDs and should not be saved to Supabase
+              const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.competitionId);
+              if (isValidUuid) {
+                try {
+                  console.log(`[HomePage] Updating competitionId for match ${match.id}: ${oldCompetitionId} -> ${match.competitionId}`);
+                  await updateMatchSupabase(match.id, { competition_id: match.competitionId });
+                } catch (err) {
+                  console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
+                }
+              } else {
+                console.log(`[HomePage] Skipping Supabase update for match ${match.id}: competitionId "${match.competitionId}" is not a valid UUID (likely a local UserCompetition ID)`);
               }
             }
           }
@@ -356,13 +365,21 @@ export default function HomePage() {
       setMatches(reassignedMatches);
         
         // Save competitionId updates back to database if changed (async, don't wait)
+        // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
         if (isSupabaseConfigured() && activeCompetition && hasChanges) {
           reassignedMatches.forEach((match, i) => {
             const oldMatch = matches[i];
             if (match.competitionId && match.competitionId !== oldMatch.competitionId && !match.competitionIdManuallySet) {
-              updateMatchSupabase(match.id, { competition_id: match.competitionId }).catch(err => {
-                console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
-              });
+              // Check if competitionId is a valid UUID (Supabase competitions table uses UUIDs)
+              // Local UserCompetition IDs (like "comp-xxx") are not UUIDs and should not be saved to Supabase
+              const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.competitionId);
+              if (isValidUuid) {
+                updateMatchSupabase(match.id, { competition_id: match.competitionId }).catch(err => {
+                  console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
+                });
+              } else {
+                console.log(`[HomePage] Skipping Supabase update for match ${match.id}: competitionId "${match.competitionId}" is not a valid UUID (likely a local UserCompetition ID)`);
+              }
             }
           });
         }

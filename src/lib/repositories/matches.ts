@@ -359,19 +359,19 @@ export async function updateMatch(
       updated_at: new Date().toISOString(),
     };
     
-    if (payload.home_team_id !== undefined) updatePayload.home_team_id = payload.home_team_id || null;
+    if (payload.home_team_id !== undefined) updatePayload.home_team_id = isUuid(payload.home_team_id) ? payload.home_team_id : null;
     if (payload.home_team_name !== undefined) updatePayload.home_team_name = payload.home_team_name || null;
-    if (payload.away_team_id !== undefined) updatePayload.away_team_id = payload.away_team_id || null;
+    if (payload.away_team_id !== undefined) updatePayload.away_team_id = isUuid(payload.away_team_id) ? payload.away_team_id : null;
     if (payload.away_team_name !== undefined) updatePayload.away_team_name = payload.away_team_name;
     if (payload.datetime !== undefined) updatePayload.datetime = payload.datetime;
     // Skip competition (TEXT) field - it's not in the production schema
     // if (payload.competition !== undefined) updatePayload.competition = payload.competition || null;
-    if (payload.competition_id !== undefined) updatePayload.competition_id = payload.competition_id || null;
-    if (payload.season_id !== undefined) updatePayload.season_id = payload.season_id || null;
+    if (payload.competition_id !== undefined) updatePayload.competition_id = isUuid(payload.competition_id) ? payload.competition_id : null;
+    if (payload.season_id !== undefined) updatePayload.season_id = isUuid(payload.season_id) ? payload.season_id : null;
     if (payload.venue !== undefined) updatePayload.venue = payload.venue || null;
     if (payload.match_type !== undefined) updatePayload.match_type = payload.match_type;
     if (payload.status !== undefined) updatePayload.status = payload.status;
-    if (payload.goalie_id !== undefined) updatePayload.goalie_id = payload.goalie_id || null;
+    if (payload.goalie_id !== undefined) updatePayload.goalie_id = isUuid(payload.goalie_id) ? payload.goalie_id : null;
     if (payload.home_score !== undefined) updatePayload.home_score = payload.home_score;
     if (payload.away_score !== undefined) updatePayload.away_score = payload.away_score;
     if (payload.manual_shots !== undefined) updatePayload.manual_shots = payload.manual_shots ?? null;
