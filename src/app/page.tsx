@@ -165,13 +165,19 @@ export default function HomePage() {
   // Load matches - try Supabase first, fall back to localStorage
   const loadMatches = async () => {
     setLoading(true);
+    console.log("[HomePage] loadMatches: Starting to load matches...");
     
     if (isSupabaseConfigured()) {
       try {
+        console.log("[HomePage] Supabase is configured, loading from Supabase...");
         const supabaseMatches = await getMatchesSupabase();
+        console.log(`[HomePage] Loaded ${supabaseMatches.length} matches from Supabase:`, supabaseMatches);
+        
         // Always use Supabase if configured, even if empty (to show deleted matches are gone)
         // Deduplicate matches by ID and externalId
         let uniqueMatches = deduplicateMatches(supabaseMatches);
+        console.log(`[HomePage] After deduplication: ${uniqueMatches.length} matches`);
+        
         // Load manually set flags and merge with matches
         const manuallySetMatchIds = loadManuallySetFlags();
         uniqueMatches = uniqueMatches.map(m => ({
@@ -181,7 +187,10 @@ export default function HomePage() {
         
         // Assign competitionId to matches that don't have it (respecting manual flags)
         const beforeAssign = uniqueMatches.map(m => m.competitionId);
+        console.log(`[HomePage] Active competition:`, activeCompetition);
+        console.log(`[HomePage] Matches before assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
         uniqueMatches = assignCompetitionIds(uniqueMatches);
+        console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
         
         // Save competitionId updates back to database if changed and Supabase is configured
         if (isSupabaseConfigured()) {
@@ -191,6 +200,7 @@ export default function HomePage() {
             // If competitionId was assigned/updated and match wasn't manually set, save to DB
             if (match.competitionId && match.competitionId !== oldCompetitionId && !match.competitionIdManuallySet) {
               try {
+                console.log(`[HomePage] Updating competitionId for match ${match.id}: ${oldCompetitionId} -> ${match.competitionId}`);
                 await updateMatchSupabase(match.id, { competition_id: match.competitionId });
               } catch (err) {
                 console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
@@ -199,6 +209,7 @@ export default function HomePage() {
           }
         }
         
+        console.log(`[HomePage] Setting ${uniqueMatches.length} matches to state`);
         setMatches(uniqueMatches);
         setDataSource("supabase");
         setLoading(false);
@@ -327,10 +338,14 @@ export default function HomePage() {
 
   // Helper function to match category with competition name
   const matchesCompetition = (match: Match, competition: typeof activeCompetition): boolean => {
-    if (!competition) return false;
+    if (!competition) {
+      console.log(`[HomePage] matchesCompetition: No competition provided for match ${match.id}`);
+      return false;
+    }
     
     // Primary: Exact match by competitionId (most reliable)
     if (match.competitionId && match.competitionId === competition.id) {
+      console.log(`[HomePage] matchesCompetition: Match ${match.id} matches by competitionId (${match.competitionId} === ${competition.id})`);
       return true;
     }
     
@@ -393,11 +408,21 @@ export default function HomePage() {
   const filteredMatches = matches.filter((m) => {
     // If activeCompetition is set, filter strictly by competitionId or name/category match
     if (activeCompetition) {
-      return matchesCompetition(m, activeCompetition);
+      const matches = matchesCompetition(m, activeCompetition);
+      if (!matches) {
+        console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
+      }
+      return matches;
     }
     // If no activeCompetition, filter by category only
-    return categoryFilter ? m.category === categoryFilter : true;
+    const result = categoryFilter ? m.category === categoryFilter : true;
+    if (!result) {
+      console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", categoryFilter="${categoryFilter}"`);
+    }
+    return result;
   });
+  
+  console.log(`[HomePage] Filtering: ${matches.length} total matches, ${filteredMatches.length} after filter, activeCompetition=${activeCompetition?.name || 'none'}, categoryFilter=${categoryFilter || 'none'}`);
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
@@ -434,6 +459,8 @@ export default function HomePage() {
     // Completed and datetime is more than 3 hours ago -> past
     return m.completed && matchTime < threeHoursAgo;
   });
+  
+  console.log(`[HomePage] Match split: ${upcomingMatches.length} upcoming, ${pastMatches.length} past, ${sortedMatches.length} total sorted`);
 
   const matchTypeLabels: Record<string, string> = {
     friendly: "Přátelský",
@@ -1056,6 +1083,33 @@ export default function HomePage() {
               ↓ Import
             </button>
           </div>
+        </div>
+      ) : filteredMatches.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
+          <div className="mb-4 text-5xl">🔍</div>
+          <h2 className="mb-2 text-lg font-semibold">Žádné zápasy pro aktuální filtr</h2>
+          <p className="mb-6 max-w-xs text-sm text-slate-400">
+            {activeCompetition 
+              ? `Máte ${matches.length} zápasů celkem, ale žádný neodpovídá soutěži "${activeCompetition.name}". Zkuste změnit výběr soutěže v dropdownu.`
+              : categoryFilter
+              ? `Máte ${matches.length} zápasů celkem, ale žádný neodpovídá kategorii "${categoryFilter}".`
+              : `Máte ${matches.length} zápasů, ale žádný neprošel filtrem.`}
+          </p>
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 rounded-lg bg-slate-800 p-3 text-left text-xs text-slate-400 max-w-md">
+              <div>Debug info:</div>
+              <div>Total matches: {matches.length}</div>
+              <div>Filtered matches: {filteredMatches.length}</div>
+              <div>Active competition: {activeCompetition?.name || 'none'} (ID: {activeCompetition?.id || 'none'})</div>
+              <div>Category filter: {categoryFilter || 'none'}</div>
+              <div className="mt-2">Sample matches (first 5):</div>
+              {matches.slice(0, 5).map(m => (
+                <div key={m.id} className="ml-2">
+                  {m.id.substring(0, 20)}...: category="{m.category || 'empty'}", competitionId="{m.competitionId || 'none'}"
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <>
