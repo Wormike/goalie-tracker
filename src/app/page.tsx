@@ -108,8 +108,9 @@ export default function HomePage() {
         // If it doesn't match, we'll try to reassign based on category below
       }
       
-      // Try to match by category
-      if (m.category) {
+      // Try to match by category (if category exists and is not empty)
+      const hasCategory = m.category && m.category.trim() !== "";
+      if (hasCategory) {
         // Normalize strings for comparison
         const categoryNormalized = m.category.toLowerCase().trim()
           .replace(/["']/g, "")
@@ -120,7 +121,7 @@ export default function HomePage() {
         const compNameNormalized = activeCompetition.name.toLowerCase().trim()
           .replace(/["']/g, "")
           .replace(/\s+/g, " ");
-        
+
         // Extract key words
         const categoryWords = categoryNormalized
           .replace(/liga\s*/g, "")
@@ -131,7 +132,7 @@ export default function HomePage() {
           .trim()
           .split(/\s+/)
           .filter(w => w && w.length > 1);
-        
+
         const compNameWords = compNameNormalized
           .replace(/starší/g, "starsi")
           .replace(/mladší/g, "mladsi")
@@ -139,28 +140,36 @@ export default function HomePage() {
           .trim()
           .split(/\s+/)
           .filter(w => w && w.length > 1);
-        
+
         // Match if all key words from competition name are in category, or vice versa
         const allCompWordsInCategory = compNameWords.length > 0 && 
           compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
         const allCategoryWordsInComp = categoryWords.length > 0 &&
           categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-        
+
         // Direct substring match
         const directMatch = categoryNormalized.includes(compNameNormalized) ||
                            compNameNormalized.includes(categoryNormalized) ||
                            categoryNormalized === compNameNormalized;
-        
+
         // Match by category field if available
         const matchesCategory = activeCompetition.category ? 
                                (categoryNormalized === activeCompetition.category.toLowerCase().trim()) : false;
-        
+
         if (directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory) {
           // Only assign if not manually set
           if (!isManuallySet) {
             return { ...m, competitionId: activeCompetition.id, competitionIdManuallySet: false };
           }
         }
+      }
+      
+      // If match has no competitionId and no category, and activeCompetition is set,
+      // assign it to activeCompetition as a fallback (user can change it manually later)
+      // This helps with newly imported matches that don't have category set
+      if (!m.competitionId && !hasCategory && !isManuallySet) {
+        console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} to activeCompetition ${activeCompetition.id} (no category, no competitionId)`);
+        return { ...m, competitionId: activeCompetition.id, competitionIdManuallySet: false };
       }
       
       return m;
@@ -392,7 +401,11 @@ export default function HomePage() {
     }
     
     // Fallback: Match by category name (for backward compatibility with old matches)
-    if (!match.category) return false;
+    // Treat empty string as "no category" (falsy check handles both null/undefined and empty string)
+    if (!match.category || match.category.trim() === "") {
+      console.log(`[HomePage] matchesCompetition: Match ${match.id} has no category, cannot match by category`);
+      return false;
+    }
     
     // Normalize strings for comparison (same logic as in import)
     const categoryNormalized = match.category.toLowerCase().trim()
@@ -458,16 +471,23 @@ export default function HomePage() {
     const filtered = matches.filter((m) => {
     // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
-        // If match has no competitionId and no category, show it (to allow manual assignment)
-        if (!m.competitionId && !m.category) {
-          console.log(`[HomePage] Match ${m.id} included (no competitionId, no category)`);
-          return true; // Show unassigned matches when competition is selected
+        // Treat empty string as "no category" - check both null/undefined and empty string
+        const hasCategory = m.category && m.category.trim() !== "";
+        const hasCompetitionId = !!m.competitionId;
+        
+        // If match has no competitionId and no category, it's truly unassigned
+        // Only show unassigned matches if we want to allow manual assignment (for now, hide them to avoid confusion)
+        // TODO: Could add a UI toggle to show/hide unassigned matches
+        if (!hasCompetitionId && !hasCategory) {
+          console.log(`[HomePage] Match ${m.id} filtered out: truly unassigned (no competitionId, no category)`);
+          return false; // Hide unassigned matches - they should be assigned first via import or manual assignment
         }
+        
         const matches = matchesCompetition(m, activeCompetition);
         if (!matches) {
-          console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", competitionId="${m.competitionId}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
+          console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category || '(empty)'}", competitionId="${m.competitionId || '(none)'}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
         } else {
-          console.log(`[HomePage] Match ${m.id} included: category="${m.category}", competitionId="${m.competitionId}", matches competition`);
+          console.log(`[HomePage] Match ${m.id} included: category="${m.category || '(empty)'}", competitionId="${m.competitionId || '(none)'}", matches competition`);
         }
         return matches;
     }
