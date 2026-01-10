@@ -63,7 +63,7 @@ function mapCategoryToCompetitionName(categoryName: string): string {
 }
 
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
-  const { addCompetition, competitions: userCompetitions } = useCompetition();
+  const { addCompetition, competitions: userCompetitions, setActiveCompetitionId } = useCompetition();
   const [step, setStep] = useState<Step>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +212,9 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       );
 
       // Import matches - save to Supabase if configured, otherwise to localStorage
+      // Track created matches with their new IDs for navigation
+      const createdMatches: Match[] = [];
+      
       if (isSupabaseConfigured()) {
         // Save to Supabase - process sequentially to avoid race conditions
         for (const match of selectedMatches) {
@@ -254,11 +257,13 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
             
             const created = await createMatchSupabase(payload);
             if (created) {
+              createdMatches.push(created); // Store created match with new UUID
               importedCount++;
             } else {
               console.warn("[ImportWizard] Failed to create match in Supabase, falling back to localStorage");
               // Fallback to localStorage
               saveMatch(enrichedMatch);
+              createdMatches.push(enrichedMatch); // Store with original ID
               importedCount++;
             }
           } catch (err) {
@@ -272,6 +277,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
               homeTeamId: mappings.homeTeamId || undefined,
             };
             saveMatch(enrichedMatch);
+            createdMatches.push(enrichedMatch); // Store with original ID
             importedCount++;
           }
         }
@@ -286,16 +292,24 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
             homeTeamId: mappings.homeTeamId || undefined,
           };
           saveMatch(enrichedMatch);
+          createdMatches.push(enrichedMatch); // Store with original ID
           importedCount++;
         });
+      }
+
+      // Set active competition if a new one was created
+      if (autoCreatedCompetition) {
+        setActiveCompetitionId(autoCreatedCompetition);
       }
 
       onComplete(importedCount);
       
       // Optionally open the first upcoming match for tracking
-      if (openAfterImport && selectedMatches.length > 0) {
-        const firstUpcoming = selectedMatches.find((m) => !m.completed);
+      // Use created matches (with correct UUIDs from Supabase) instead of original selectedMatches
+      if (openAfterImport && createdMatches.length > 0) {
+        const firstUpcoming = createdMatches.find((m) => !m.completed);
         if (firstUpcoming) {
+          // Use the correct ID (UUID from Supabase or original ID from localStorage)
           window.location.href = `/match/${firstUpcoming.id}`;
           return;
         }

@@ -326,6 +326,8 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       .select(`
         *,
         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+        away_team:teams!matches_away_team_id_fkey(id, name, short_name),
+        competition_relation:competitions!matches_competition_id_fkey(id, name, category),
         goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
       `)
       .single();
