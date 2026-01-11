@@ -1348,7 +1348,20 @@ export default function HomePage() {
                             >
                               {matchTypeLabels[m.matchType] || m.matchType}
                             </span>
-                            <span>{m.category}</span>
+                            {(() => {
+                              // Get competition name/category for abbreviation
+                              const competition = m.competitionId ? userCompetitions.find(c => c.id === m.competitionId) : null;
+                              const categoryDisplay = competition ? (competition.category || competition.name) : m.category;
+                              const categoryAbbr = categoryDisplay ? getCategoryAbbreviation(categoryDisplay) : null;
+                              
+                              if (categoryAbbr || goalieInitials) {
+                                const parts: string[] = [];
+                                if (categoryAbbr) parts.push(`kat: ${categoryAbbr}`);
+                                if (goalieInitials) parts.push(`g: ${goalieInitials}`);
+                                return <span className="text-xs text-slate-400">{parts.join(", ")}</span>;
+                              }
+                              return <span>{m.category || "Nepřiřazeno"}</span>;
+                            })()}
                           </div>
                           <button
                             onClick={() => setDeletingMatch(m)}
