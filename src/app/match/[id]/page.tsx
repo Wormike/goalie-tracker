@@ -501,11 +501,17 @@ export default function MatchPage() {
     // If competitionId is empty string, convert to null to allow removal
     const finalCompetitionId = competitionId && competitionId.trim() !== "" ? competitionId : undefined;
     
-    // Mark as manually set when user changes it - store in metadata
+    // Store competitionId in localStorage metadata (works for both UUID and local IDs)
+    // This ensures manual assignment persists even when loading from Supabase
     if (typeof window !== 'undefined') {
       try {
         const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-        metadata[match.id] = true; // Mark as manually set
+        if (finalCompetitionId) {
+          metadata[match.id] = { manuallySet: true, competitionId: finalCompetitionId };
+        } else {
+          // Remove assignment - delete metadata
+          delete metadata[match.id];
+        }
         localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
       } catch (err) {
         console.error('[MatchPage] Failed to save competition metadata:', err);
@@ -513,13 +519,18 @@ export default function MatchPage() {
     }
     
     if (dataSource === "supabase") {
-      // Update in Supabase
-      const updated = await updateMatchSupabase(match.id, { 
-        competition_id: finalCompetitionId,
-      });
-      if (updated) {
-        // Merge manually set flag
-        setMatch({ ...updated, competitionIdManuallySet: true });
+      // Try to update in Supabase (only if competitionId is UUID)
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(finalCompetitionId || '');
+      if (isUuid && finalCompetitionId) {
+        const updated = await updateMatchSupabase(match.id, { 
+          competition_id: finalCompetitionId,
+        });
+        if (updated) {
+          setMatch({ ...updated, competitionId: finalCompetitionId, competitionIdManuallySet: true });
+        }
+      } else {
+        // Not a UUID - just update local state and metadata (already saved above)
+        setMatch({ ...match, competitionId: finalCompetitionId, competitionIdManuallySet: true });
       }
     } else {
       // Update in localStorage

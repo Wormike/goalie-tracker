@@ -58,31 +58,99 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
 
-  // Helper function to load manually set competition flags from metadata
-  const loadManuallySetFlags = (): Set<string> => {
-    if (typeof window === 'undefined') return new Set();
+  // Helper function to load competition metadata from localStorage
+  // Returns map of matchId -> { manuallySet: boolean, competitionId?: string }
+  const loadCompetitionMetadata = (): Map<string, { manuallySet: boolean; competitionId?: string }> => {
+    if (typeof window === 'undefined') return new Map();
     try {
       const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-      return new Set(Object.keys(metadata).filter(id => metadata[id] === true));
+      const result = new Map<string, { manuallySet: boolean; competitionId?: string }>();
+      
+      // Handle both old format (boolean) and new format (object)
+      for (const [matchId, value] of Object.entries(metadata)) {
+        if (typeof value === 'boolean') {
+          // Old format - migrate to new format
+          result.set(matchId, { manuallySet: value });
+        } else if (typeof value === 'object' && value !== null) {
+          // New format
+          result.set(matchId, value as { manuallySet: boolean; competitionId?: string });
+        }
+      }
+      return result;
     } catch {
-      return new Set();
+      return new Map();
     }
   };
 
+  // Helper function to load manually set competition flags from metadata (backward compatibility)
+  const loadManuallySetFlags = (): Set<string> => {
+    const metadata = loadCompetitionMetadata();
+    const result = new Set<string>();
+    for (const [matchId, value] of metadata.entries()) {
+      if (value.manuallySet) {
+        result.add(matchId);
+      }
+    }
+    return result;
+  };
+
   // Helper function to save manually set competition flag
-  const saveManuallySetFlag = (matchId: string, isManuallySet: boolean) => {
+  const saveManuallySetFlag = (matchId: string, isManuallySet: boolean, competitionId?: string) => {
     if (typeof window === 'undefined') return;
     try {
-      const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+      const metadata = loadCompetitionMetadata();
       if (isManuallySet) {
-        metadata[matchId] = true;
+        metadata.set(matchId, { manuallySet: true, competitionId });
       } else {
-        delete metadata[matchId];
+        metadata.delete(matchId);
       }
-      localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+      // Convert Map back to object for localStorage
+      const metadataObj: Record<string, { manuallySet: boolean; competitionId?: string }> = {};
+      for (const [id, value] of metadata.entries()) {
+        metadataObj[id] = value;
+      }
+      localStorage.setItem('match-competition-metadata', JSON.stringify(metadataObj));
     } catch (err) {
       console.error('[HomePage] Failed to save competition metadata:', err);
     }
+  };
+
+  // Helper function to get category abbreviation (e.g. "Starší žáci B" -> "SŽB")
+  const getCategoryAbbreviation = (categoryOrCompetitionName: string): string => {
+    if (!categoryOrCompetitionName || categoryOrCompetitionName.trim() === "") return "";
+    
+    const normalized = categoryOrCompetitionName.toLowerCase().trim();
+    
+    // Extract key words
+    const words = normalized
+      .replace(/liga\s*/g, "")
+      .replace(/starších|starší/g, "starsi")
+      .replace(/mladších|mladší/g, "mladsi")
+      .replace(/žáků|žák/g, "zaci")
+      .replace(/sk\.?\s*\d+/g, "")
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(w => w && w.length > 1);
+    
+    // Build abbreviation: first letter of each significant word
+    // "starsi zaci b" -> "SŽB"
+    // "mladsi zaci a" -> "MŽA"
+    const abbreviation = words
+      .map(word => {
+        // Special handling for "starsi" -> "S", "mladsi" -> "M", "zaci" -> "Ž"
+        if (word === "starsi") return "S";
+        if (word === "mladsi") return "M";
+        if (word === "zaci") return "Ž";
+        // For letter (A, B) return uppercase
+        if (word.length === 1) return word.toUpperCase();
+        // For other words, return first letter uppercase
+        return word.charAt(0).toUpperCase();
+      })
+      .join("");
+    
+    return abbreviation || categoryOrCompetitionName.substring(0, 3).toUpperCase();
   };
 
   // Helper function to check if a match category matches a competition
@@ -238,12 +306,24 @@ export default function HomePage() {
           let uniqueMatches = deduplicateMatches(supabaseMatches);
         console.log(`[HomePage] After deduplication: ${uniqueMatches.length} matches`);
         
-        // Load manually set flags and merge with matches
-        const manuallySetMatchIds = loadManuallySetFlags();
-        uniqueMatches = uniqueMatches.map(m => ({
-          ...m,
-          competitionIdManuallySet: manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet,
-        }));
+        // Load competition metadata and merge with matches
+        // This includes manually set competitionId values (even if not UUID)
+        const competitionMetadata = loadCompetitionMetadata();
+        uniqueMatches = uniqueMatches.map(m => {
+          const metadata = competitionMetadata.get(m.id);
+          if (metadata?.manuallySet && metadata.competitionId) {
+            // Use competitionId from metadata (can be local ID, not just UUID)
+            return {
+              ...m,
+              competitionId: metadata.competitionId,
+              competitionIdManuallySet: true,
+            };
+          }
+          return {
+            ...m,
+            competitionIdManuallySet: metadata?.manuallySet || m.competitionIdManuallySet,
+          };
+        });
         
         // Assign competitionId to matches that don't have it (respecting manual flags)
         const beforeAssign = uniqueMatches.map(m => m.competitionId);
@@ -1359,11 +1439,26 @@ export default function HomePage() {
                       <div className="flex items-center gap-3">
                         {/* Match info - takes remaining space */}
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">
-                            {m.home || m.homeTeamName || "Domácí"} vs {m.away || m.awayTeamName || "Hosté"}
+                          <div className="flex flex-col text-sm font-medium">
+                            <div>{m.home || m.homeTeamName || "Domácí"}</div>
+                            <div className="text-xs text-slate-400">vs {m.away || m.awayTeamName || "Hosté"}</div>
                           </div>
                           <div className="mt-0.5 text-xs text-slate-500">
-                            {new Date(m.datetime).toLocaleDateString("cs-CZ")} • {m.category}
+                            {new Date(m.datetime).toLocaleDateString("cs-CZ")} • {(() => {
+                              // Get competition name/category for abbreviation
+                              const competition = m.competitionId ? userCompetitions.find(c => c.id === m.competitionId) : null;
+                              const categoryDisplay = competition ? (competition.category || competition.name) : m.category;
+                              const categoryAbbr = categoryDisplay ? getCategoryAbbreviation(categoryDisplay) : null;
+                              const goalieAbbr = goalieInitials || null;
+                              
+                              if (categoryAbbr || goalieAbbr) {
+                                const parts: string[] = [];
+                                if (categoryAbbr) parts.push(`kat: ${categoryAbbr}`);
+                                if (goalieAbbr) parts.push(`g: ${goalieAbbr}`);
+                                return parts.join(", ");
+                              }
+                              return m.category || "Nepřiřazeno";
+                            })()}
                             {m.source === "ceskyhokej" && (
                               <span className="ml-1 text-accentSuccess">(import)</span>
                             )}
