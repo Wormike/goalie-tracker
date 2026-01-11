@@ -1483,35 +1483,37 @@ export default function HomePage() {
                     >
                       ✓ Vybrat vše
                     </button>
-                <button
-                  onClick={async () => {
-                    if (!confirm("Aktualizovat nadcházející zápasy z webu?")) return;
-                    setImporting(true);
-                    try {
-                      const res = await fetch("/api/matches/import", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ season: "2025-2026" }),
-                      });
-                      const data = await res.json();
-                      if (data.success && data.matches) {
-                        // Update only upcoming matches
-                        const upcomingFromApi = data.matches.filter((m: Match) => !m.completed);
-                        upcomingFromApi.forEach((m: Match) => saveMatch(m));
-                        // Reload matches
-                        loadMatches();
-                        alert(`Aktualizováno ${upcomingFromApi.length} nadcházejících zápasů`);
-                      }
-                    } catch (e) {
-                      alert("Chyba při aktualizaci: " + e);
-                    }
-                    setImporting(false);
-                  }}
-                  disabled={importing}
-                  className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-white disabled:opacity-50"
-                >
-                  {importing ? "⏳" : "🔄"} Aktualizovat
-                </button>
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Aktualizovat nadcházející zápasy z webu?")) return;
+                        setImporting(true);
+                        try {
+                          const res = await fetch("/api/matches/import", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ season: "2025-2026" }),
+                          });
+                          const data = await res.json();
+                          if (data.success && data.matches) {
+                            // Update only upcoming matches
+                            const upcomingFromApi = data.matches.filter((m: Match) => !m.completed);
+                            upcomingFromApi.forEach((m: Match) => saveMatch(m));
+                            // Reload matches
+                            loadMatches();
+                            alert(`Aktualizováno ${upcomingFromApi.length} nadcházejících zápasů`);
+                          }
+                        } catch (e) {
+                          alert("Chyba při aktualizaci: " + e);
+                        }
+                        setImporting(false);
+                      }}
+                      disabled={importing}
+                      className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-400 hover:text-white disabled:opacity-50"
+                    >
+                      {importing ? "⏳" : "🔄"} Aktualizovat
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="space-y-3">
                 {upcomingMatches.map((m) => {
