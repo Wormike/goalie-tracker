@@ -157,17 +157,17 @@ export default function HomePage() {
   const matchCategoryToCompetition = (matchCategory: string, competition: { name: string; category?: string }): boolean => {
     if (!matchCategory || matchCategory.trim() === "") return false;
     
-    // Normalize strings for comparison
+        // Normalize strings for comparison
     const categoryNormalized = matchCategory.toLowerCase().trim()
-      .replace(/["']/g, "")
-      .replace(/\s+/g, " ")
-      .replace(/\s+sk\./g, " sk")
-      .replace(/\s+sk/g, " sk");
-    
+          .replace(/["']/g, "")
+          .replace(/\s+/g, " ")
+          .replace(/\s+sk\./g, " sk")
+          .replace(/\s+sk/g, " sk");
+        
     const compNameNormalized = competition.name.toLowerCase().trim()
-      .replace(/["']/g, "")
-      .replace(/\s+/g, " ");
-
+          .replace(/["']/g, "")
+          .replace(/\s+/g, " ");
+        
     // Match by category field if available (most reliable)
     if (competition.category) {
       const compCategoryNormalized = competition.category.toLowerCase().trim();
@@ -176,36 +176,36 @@ export default function HomePage() {
       }
     }
 
-    // Extract key words
-    const categoryWords = categoryNormalized
-      .replace(/liga\s*/g, "")
-      .replace(/starších|starší/g, "starsi")
-      .replace(/mladších|mladší/g, "mladsi")
-      .replace(/žáků|žák/g, "zaci")
-      .replace(/sk\.?\s*\d+/g, "")
-      .trim()
-      .split(/\s+/)
-      .filter(w => w && w.length > 1);
-
-    const compNameWords = compNameNormalized
-      .replace(/starší/g, "starsi")
-      .replace(/mladší/g, "mladsi")
-      .replace(/žák/g, "zaci")
-      .trim()
-      .split(/\s+/)
-      .filter(w => w && w.length > 1);
-
-    // Match if all key words from competition name are in category, or vice versa
-    const allCompWordsInCategory = compNameWords.length > 0 && 
-      compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
-    const allCategoryWordsInComp = categoryWords.length > 0 &&
-      categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-
-    // Direct substring match
-    const directMatch = categoryNormalized.includes(compNameNormalized) ||
-                       compNameNormalized.includes(categoryNormalized) ||
-                       categoryNormalized === compNameNormalized;
-
+        // Extract key words
+        const categoryWords = categoryNormalized
+          .replace(/liga\s*/g, "")
+          .replace(/starších|starší/g, "starsi")
+          .replace(/mladších|mladší/g, "mladsi")
+          .replace(/žáků|žák/g, "zaci")
+          .replace(/sk\.?\s*\d+/g, "")
+          .trim()
+          .split(/\s+/)
+          .filter(w => w && w.length > 1);
+        
+        const compNameWords = compNameNormalized
+          .replace(/starší/g, "starsi")
+          .replace(/mladší/g, "mladsi")
+          .replace(/žák/g, "zaci")
+          .trim()
+          .split(/\s+/)
+          .filter(w => w && w.length > 1);
+        
+        // Match if all key words from competition name are in category, or vice versa
+        const allCompWordsInCategory = compNameWords.length > 0 && 
+          compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
+        const allCategoryWordsInComp = categoryWords.length > 0 &&
+          categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
+        
+        // Direct substring match
+        const directMatch = categoryNormalized.includes(compNameNormalized) ||
+                           compNameNormalized.includes(categoryNormalized) ||
+                           categoryNormalized === compNameNormalized;
+        
     return directMatch || allCompWordsInCategory || allCategoryWordsInComp;
   };
 
@@ -485,7 +485,7 @@ export default function HomePage() {
       
       if (hasChanges) {
         console.log(`[HomePage] Reassignment result: ${hasChanges ? 'changes detected' : 'no changes'}, updating matches state`);
-        setMatches(reassignedMatches);
+      setMatches(reassignedMatches);
         
         // Save competitionId updates back to database if changed (async, don't wait)
         // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
@@ -1281,11 +1281,11 @@ export default function HomePage() {
       ) : (
         <>
           {/* Upcoming matches */}
-          {upcomingMatches.filter(m => !m.completed).length > 0 && (
+          {upcomingMatches.length > 0 && (
             <section>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-400">
-                  NADCHÁZEJÍCÍ ZÁPASY ({upcomingMatches.filter(m => !m.completed).length})
+                  NADCHÁZEJÍCÍ ZÁPASY ({upcomingMatches.length})
                 </h2>
                 <button
                   onClick={async () => {
@@ -1318,9 +1318,7 @@ export default function HomePage() {
                 </button>
               </div>
               <div className="space-y-3">
-                {upcomingMatches
-                  .filter(m => !m.completed)
-                  .map((m) => {
+                {upcomingMatches.map((m) => {
                     const goalie = m.goalieId
                       ? getGoalieById(m.goalieId)
                       : null;
