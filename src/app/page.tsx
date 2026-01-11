@@ -185,6 +185,38 @@ export default function HomePage() {
         }
       }
       
+      // Fallback: If match has no category but has external_id from import, try to match by external_id
+      // external_id format: "starsi-zaci-b-..." or "category-name-..."
+      if (!hasCategory && m.externalId && m.source === "ceskyhokej") {
+        const externalIdLower = m.externalId.toLowerCase();
+        // Extract category slug from external_id (e.g. "starsi-zaci-b-123" -> "starsi-zaci-b")
+        const categorySlugMatch = externalIdLower.match(/^(starsi-zaci-[ab]|mladsi-zaci-[ab])/);
+        if (categorySlugMatch) {
+          const categorySlug = categorySlugMatch[1];
+          // Map category slug to expected competition name patterns
+          const expectedPatterns: Record<string, string[]> = {
+            "starsi-zaci-a": ["starší", "žáci", "a"],
+            "starsi-zaci-b": ["starší", "žáci", "b"],
+            "mladsi-zaci-a": ["mladší", "žáci", "a"],
+            "mladsi-zaci-b": ["mladší", "žáci", "b"],
+          };
+          
+          const expectedWords = expectedPatterns[categorySlug];
+          if (expectedWords) {
+            // Find competition that matches the expected pattern
+            for (const competition of userCompetitions) {
+              const compNameLower = competition.name.toLowerCase().trim();
+              // Check if competition name contains all expected words
+              const matchesPattern = expectedWords.every(word => compNameLower.includes(word));
+              if (matchesPattern) {
+                console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} (external_id: "${m.externalId}", category slug: "${categorySlug}") to competition "${competition.name}" (${competition.id}) by external_id match`);
+                return { ...m, competitionId: competition.id, competitionIdManuallySet: false };
+              }
+            }
+          }
+        }
+      }
+      
       // No match found - leave match unassigned
       return m;
     });
