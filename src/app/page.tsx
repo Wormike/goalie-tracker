@@ -220,35 +220,8 @@ export default function HomePage() {
           uniqueMatches = assignCompetitionIds(uniqueMatches);
         console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
         
-        // Delete matches without category and competitionId (they cannot be assigned and are useless)
-        const matchesToDelete = uniqueMatches.filter(m => {
-          const hasCategory = m.category && m.category.trim() !== "";
-          const hasCompetitionId = !!m.competitionId;
-          return !hasCategory && !hasCompetitionId;
-        });
-        
-        if (matchesToDelete.length > 0) {
-          console.log(`[HomePage] Found ${matchesToDelete.length} matches without category and competitionId - deleting them`);
-          for (const match of matchesToDelete) {
-            try {
-              if (isSupabaseConfigured()) {
-                await deleteMatchSupabase(match.id);
-              } else {
-                deleteMatchLocal(match.id);
-              }
-              // Also remove manually set flag if exists
-              saveManuallySetFlag(match.id, false);
-            } catch (err) {
-              console.error(`[HomePage] Failed to delete match ${match.id}:`, err);
-            }
-          }
-          // Remove deleted matches from the list
-          uniqueMatches = uniqueMatches.filter(m => {
-            const hasCategory = m.category && m.category.trim() !== "";
-            const hasCompetitionId = !!m.competitionId;
-            return hasCategory || hasCompetitionId;
-          });
-        }
+        // Don't automatically delete matches - let users manually delete duplicates
+        // Unassigned matches (without category and competitionId) will be shown in "Nezařazené" view
         
         // Save competitionId updates back to database if changed and Supabase is configured
         // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
@@ -299,31 +272,8 @@ export default function HomePage() {
     // Assign competitionId to matches that don't have it (respecting manual flags)
     uniqueMatches = assignCompetitionIds(uniqueMatches);
     
-    // Delete matches without category and competitionId (they cannot be assigned and are useless)
-    const matchesToDelete = uniqueMatches.filter(m => {
-      const hasCategory = m.category && m.category.trim() !== "";
-      const hasCompetitionId = !!m.competitionId;
-      return !hasCategory && !hasCompetitionId;
-    });
-    
-    if (matchesToDelete.length > 0) {
-      console.log(`[HomePage] Found ${matchesToDelete.length} matches without category and competitionId - deleting them`);
-      for (const match of matchesToDelete) {
-        try {
-          deleteMatchLocal(match.id);
-          // Also remove manually set flag if exists
-          saveManuallySetFlag(match.id, false);
-        } catch (err) {
-          console.error(`[HomePage] Failed to delete match ${match.id}:`, err);
-        }
-      }
-      // Remove deleted matches from the list
-      uniqueMatches = uniqueMatches.filter(m => {
-        const hasCategory = m.category && m.category.trim() !== "";
-        const hasCompetitionId = !!m.competitionId;
-        return hasCategory || hasCompetitionId;
-      });
-    }
+    // Don't automatically delete matches - let users manually delete duplicates
+    // Unassigned matches (without category and competitionId) will be shown in "Nezařazené" view
     
     setMatches(uniqueMatches);
     setDataSource("local");
