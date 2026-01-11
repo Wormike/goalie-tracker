@@ -57,6 +57,8 @@ export default function HomePage() {
   const [showImportWizard, setShowImportWizard] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
+  const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
+  const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
 
   // Helper function to load competition metadata from localStorage
   // Returns map of matchId -> { manuallySet: boolean, competitionId?: string }
@@ -890,6 +892,121 @@ export default function HomePage() {
     setDeletingMatch(null);
   };
 
+  // Handle bulk delete selected matches
+  const handleBulkDelete = async () => {
+    if (selectedMatchIds.size === 0) return;
+    
+    const count = selectedMatchIds.size;
+    if (!confirm(`Opravdu smazat ${count} vybraných zápasů?`)) return;
+
+    // Always try to delete from Supabase if configured
+    if (isSupabaseConfigured()) {
+      for (const matchId of selectedMatchIds) {
+        // best-effort – pokud se některý zápas nepodaří smazat, pokračujeme dál
+        // eslint-disable-next-line no-await-in-loop
+        await deleteMatchSupabase(matchId);
+      }
+    }
+    
+    // Also delete from localStorage
+    selectedMatchIds.forEach((matchId) => deleteMatchLocal(matchId));
+    
+    // Remove manually set flags
+    if (typeof window !== 'undefined') {
+      try {
+        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+        selectedMatchIds.forEach(matchId => {
+          delete metadata[matchId];
+        });
+        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+      } catch (err) {
+        // Ignore errors
+      }
+    }
+    
+    // Clear selection and reload matches
+    setSelectedMatchIds(new Set());
+    await loadMatches();
+  };
+
+  // Handle bulk move selected matches to different competition
+  const handleBulkMove = async (targetCompetitionId: string | null) => {
+    if (selectedMatchIds.size === 0) return;
+    
+    const finalCompetitionId = targetCompetitionId && targetCompetitionId.trim() !== "" ? targetCompetitionId : undefined;
+    
+    // Update all selected matches
+    for (const matchId of selectedMatchIds) {
+      const match = matches.find(m => m.id === matchId);
+      if (!match) continue;
+      
+      // Store competitionId in localStorage metadata (works for both UUID and local IDs)
+      if (typeof window !== 'undefined') {
+        try {
+          const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
+          if (finalCompetitionId) {
+            metadata[matchId] = { manuallySet: true, competitionId: finalCompetitionId };
+          } else {
+            delete metadata[matchId];
+          }
+          localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
+        } catch (err) {
+          console.error('[HomePage] Failed to save competition metadata:', err);
+        }
+      }
+      
+      // Update in Supabase if configured and competitionId is UUID
+      if (isSupabaseConfigured() && finalCompetitionId) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(finalCompetitionId);
+        if (isUuid) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await updateMatchSupabase(matchId, { competition_id: finalCompetitionId });
+          } catch (err) {
+            console.error(`[HomePage] Failed to update competitionId for match ${matchId}:`, err);
+          }
+        }
+      }
+      
+      // Update in localStorage
+      const updatedMatch = {
+        ...match,
+        competitionId: finalCompetitionId,
+        competitionIdManuallySet: true,
+      };
+      saveMatch(updatedMatch);
+    }
+    
+    // Clear selection and reload matches
+    setSelectedMatchIds(new Set());
+    setShowBulkMoveModal(false);
+    await loadMatches();
+  };
+
+  // Toggle match selection
+  const toggleMatchSelection = (matchId: string) => {
+    setSelectedMatchIds(prev => {
+      const next = new Set(prev);
+      if (next.has(matchId)) {
+        next.delete(matchId);
+      } else {
+        next.add(matchId);
+      }
+      return next;
+    });
+  };
+
+  // Select all visible matches
+  const selectAllVisible = () => {
+    const allIds = new Set([...upcomingMatches, ...pastMatches].map(m => m.id));
+    setSelectedMatchIds(allIds);
+  };
+
+  // Clear selection
+  const clearSelection = () => {
+    setSelectedMatchIds(new Set());
+  };
+
   const handleDeleteFilteredMatches = async () => {
     if (filteredMatches.length === 0) return;
     const label = categoryFilter
@@ -1171,6 +1288,49 @@ export default function HomePage() {
         </div>
       )}
 
+      {/* Bulk move modal */}
+      {showBulkMoveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-bgSurfaceSoft p-6">
+            <h3 className="mb-4 text-lg font-semibold text-slate-200">
+              Přesunout {selectedMatchIds.size} zápasů
+            </h3>
+            <p className="mb-4 text-sm text-slate-400">
+              Vyberte cílovou soutěž pro vybrané zápasy:
+            </p>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              <button
+                onClick={() => handleBulkMove(null)}
+                className="w-full rounded-lg px-4 py-3 text-left bg-slate-800 hover:bg-slate-700 text-slate-200"
+              >
+                <div className="font-medium">Nepřiřazeno</div>
+                <div className="text-xs text-slate-400">Zápasy nebudou přiřazeny k žádné soutěži</div>
+              </button>
+              {userCompetitions.map((comp) => (
+                <button
+                  key={comp.id}
+                  onClick={() => handleBulkMove(comp.id)}
+                  className="w-full rounded-lg px-4 py-3 text-left bg-slate-800 hover:bg-slate-700 text-slate-200"
+                >
+                  <div className="font-medium">{comp.name}</div>
+                  {comp.category && (
+                    <div className="text-xs text-slate-400">{comp.category}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setShowBulkMoveModal(false)}
+                className="flex-1 rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-600"
+              >
+                Zrušit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirmation modal */}
       {deletingMatch && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -1284,9 +1444,45 @@ export default function HomePage() {
           {upcomingMatches.length > 0 && (
             <section>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-400">
-                  NADCHÁZEJÍCÍ ZÁPASY ({upcomingMatches.length})
-                </h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-semibold text-slate-400">
+                    NADCHÁZEJÍCÍ ZÁPASY ({upcomingMatches.length})
+                  </h2>
+                  {selectedMatchIds.size > 0 && (
+                    <span className="text-xs text-slate-500">
+                      ({selectedMatchIds.size} vybráno)
+                    </span>
+                  )}
+                </div>
+                {selectedMatchIds.size > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleBulkDelete}
+                      className="rounded-lg bg-accentDanger/10 px-3 py-1.5 text-xs font-medium text-accentDanger hover:bg-accentDanger/20"
+                    >
+                      🗑️ Smazat ({selectedMatchIds.size})
+                    </button>
+                    <button
+                      onClick={() => setShowBulkMoveModal(true)}
+                      className="rounded-lg bg-accentPrimary/10 px-3 py-1.5 text-xs font-medium text-accentPrimary hover:bg-accentPrimary/20"
+                    >
+                      📁 Přesunout ({selectedMatchIds.size})
+                    </button>
+                    <button
+                      onClick={clearSelection}
+                      className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-600"
+                    >
+                      Zrušit
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={selectAllVisible}
+                      className="rounded-lg bg-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600"
+                    >
+                      ✓ Vybrat vše
+                    </button>
                 <button
                   onClick={async () => {
                     if (!confirm("Aktualizovat nadcházející zápasy z webu?")) return;
@@ -1331,10 +1527,17 @@ export default function HomePage() {
                     return (
                       <div
                         key={m.id}
-                        className="rounded-2xl bg-bgSurfaceSoft p-4 shadow-sm shadow-black/40"
+                        className={`rounded-2xl bg-bgSurfaceSoft p-4 shadow-sm shadow-black/40 ${selectedMatchIds.has(m.id) ? 'ring-2 ring-accentPrimary' : ''}`}
                       >
                         <div className="flex items-center justify-between text-xs text-slate-400">
                           <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedMatchIds.has(m.id)}
+                              onChange={() => toggleMatchSelection(m.id)}
+                              className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-accentPrimary focus:ring-accentPrimary"
+                              onClick={(e) => e.stopPropagation()}
+                            />
                             <span
                               className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                                 m.matchType === "friendly"
@@ -1417,13 +1620,53 @@ export default function HomePage() {
             <section>
               {/* Section header with external standings link */}
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-400">
-                  ODEHRANÉ ZÁPASY ({pastMatches.length})
-                </h2>
-                <StandingsButton 
-                  url={currentStandingsUrl} 
-                  label="Tabulka"
-                />
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-semibold text-slate-400">
+                    ODEHRANÉ ZÁPASY ({pastMatches.length})
+                  </h2>
+                  {selectedMatchIds.size > 0 && (
+                    <span className="text-xs text-slate-500">
+                      ({selectedMatchIds.size} vybráno)
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedMatchIds.size > 0 ? (
+                    <>
+                      <button
+                        onClick={handleBulkDelete}
+                        className="rounded-lg bg-accentDanger/10 px-3 py-1.5 text-xs font-medium text-accentDanger hover:bg-accentDanger/20"
+                      >
+                        🗑️ Smazat ({selectedMatchIds.size})
+                      </button>
+                      <button
+                        onClick={() => setShowBulkMoveModal(true)}
+                        className="rounded-lg bg-accentPrimary/10 px-3 py-1.5 text-xs font-medium text-accentPrimary hover:bg-accentPrimary/20"
+                      >
+                        📁 Přesunout ({selectedMatchIds.size})
+                      </button>
+                      <button
+                        onClick={clearSelection}
+                        className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-600"
+                      >
+                        Zrušit
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={selectAllVisible}
+                        className="rounded-lg bg-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600"
+                      >
+                        ✓ Vybrat vše
+                      </button>
+                      <StandingsButton 
+                        url={currentStandingsUrl} 
+                        label="Tabulka"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -1444,10 +1687,17 @@ export default function HomePage() {
                   return (
                     <div
                       key={m.id}
-                      className="rounded-xl bg-bgSurfaceSoft/50 p-3"
+                      className={`rounded-xl bg-bgSurfaceSoft/50 p-3 ${selectedMatchIds.has(m.id) ? 'ring-2 ring-accentPrimary' : ''}`}
                     >
                       {/* Main row with flex layout for consistent alignment */}
                       <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedMatchIds.has(m.id)}
+                          onChange={() => toggleMatchSelection(m.id)}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-accentPrimary focus:ring-accentPrimary"
+                          onClick={(e) => e.stopPropagation()}
+                        />
                         {/* Match info - takes remaining space */}
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-col text-sm font-medium">

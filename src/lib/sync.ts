@@ -405,7 +405,18 @@ export async function uploadToSupabase(): Promise<SyncResult> {
       const eventsPayload = events
         .filter((e) => e.status !== "deleted")
         .map((e) => {
-          const matchId = matchIdMap.get(e.matchId) || e.matchId;
+          // Get mapped match ID - if match was synchronized, use mapped UUID, otherwise check if original is UUID
+          let matchId = matchIdMap.get(e.matchId);
+          if (!matchId) {
+            // Match not in map - check if original matchId is valid UUID (exists in Supabase)
+            if (isValidUuid(e.matchId)) {
+              matchId = e.matchId; // Match exists in Supabase with this UUID
+            } else {
+              // Match has local ID (not in Supabase) - skip this event
+              return null;
+            }
+          }
+          
           const goalieId = goalieIdMap.get(e.goalieId) || e.goalieId;
 
           // Map situation: legacy "powerplay"/"shorthanded" -> "pp"/"sh"
@@ -415,7 +426,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           
           return {
             id: ensureUuid(e.id),
-            match_id: isValidUuid(matchId) ? matchId : null,
+            match_id: matchId, // Already validated above
             goalie_id: isValidUuid(goalieId) ? goalieId : null,
             period: String(e.period) as "1" | "2" | "3" | "OT",
             game_time: e.gameTime || null,
@@ -436,7 +447,28 @@ export async function uploadToSupabase(): Promise<SyncResult> {
             status: e.status || "confirmed",
           };
         })
-        .filter((e) => e.match_id !== null); // Only upload events with valid match_id
+        .filter((e) => e !== null && e.match_id !== null) as Array<{
+          id: string;
+          match_id: string;
+          goalie_id: string | null;
+          period: "1" | "2" | "3" | "OT";
+          game_time: string | null;
+          result: "save" | "goal";
+          shot_x: number | null;
+          shot_y: number | null;
+          shot_zone: string | null;
+          goal_x: number | null;
+          goal_y: number | null;
+          goal_zone: string | null;
+          shot_type: string | null;
+          save_type: string | null;
+          goal_type: string | null;
+          situation: "even" | "pp" | "sh" | "4v4" | "3v3";
+          is_rebound: boolean;
+          is_screened: boolean;
+          input_source: "live" | "manual" | "import";
+          status: "confirmed" | "pending" | "deleted";
+        }>; // Only upload events with valid match_id (UUID that exists in Supabase)
 
       if (eventsPayload.length > 0) {
         const { error: eventsError } = await supabase
