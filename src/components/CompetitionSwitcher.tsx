@@ -56,11 +56,11 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
     return null;
   }
 
-  const handleSelect = (id: string) => {
-    console.log(`[CompetitionSwitcher] handleSelect called with id: ${id}`);
+  const handleSelect = (id: string | null) => {
+    console.log(`[CompetitionSwitcher] handleSelect called with id: ${id || 'null (unassigned)'}`);
     console.log(`[CompetitionSwitcher] Current activeCompetition:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null');
     setActiveCompetitionId(id);
-    console.log(`[CompetitionSwitcher] setActiveCompetitionId(${id}) called`);
+    console.log(`[CompetitionSwitcher] setActiveCompetitionId(${id || 'null'}) called`);
     setIsOpen(false);
   };
 
@@ -74,7 +74,7 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
         aria-haspopup="listbox"
       >
         <span className="max-w-[140px] truncate">
-          {activeCompetition?.name || "Vyberte soutěž"}
+          {activeCompetition === null ? "Nezařazené" : activeCompetition?.name || "Vyberte soutěž"}
         </span>
         <ChevronIcon className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
@@ -84,6 +84,24 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
         <div className="absolute right-0 top-full z-50 mt-1 min-w-[200px] overflow-hidden rounded-xl border border-borderSoft bg-bgSurfaceSoft shadow-lg shadow-black/30">
           {/* Competition list */}
           <div className="max-h-[300px] overflow-y-auto py-1">
+            {/* "Nezařazené" option - shows matches without competitionId */}
+            <button
+              onClick={() => handleSelect(null)}
+              className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors ${
+                activeCompetition === null
+                  ? "bg-accentPrimary/10 text-accentPrimary"
+                  : "text-slate-200 hover:bg-slate-700"
+              }`}
+              role="option"
+              aria-selected={activeCompetition === null}
+            >
+              {activeCompetition === null && (
+                <span className="text-xs">✓</span>
+              )}
+              <span className={activeCompetition === null ? "" : "ml-5"}>
+                Nezařazené
+              </span>
+            </button>
             {competitions.map((comp) => (
               <button
                 key={comp.id}

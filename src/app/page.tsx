@@ -27,7 +27,7 @@ import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 export default function HomePage() {
   // User competition context
-  const { activeCompetition, hasCompetitions } = useCompetition();
+  const { activeCompetition, hasCompetitions, competitions: userCompetitions } = useCompetition();
   const pathname = usePathname();
   
   // Debug: Log activeCompetition changes
@@ -85,9 +85,66 @@ export default function HomePage() {
     }
   };
 
-  // Helper function to assign competitionId to matches without it
+  // Helper function to check if a match category matches a competition
+  const matchCategoryToCompetition = (matchCategory: string, competition: { name: string; category?: string }): boolean => {
+    if (!matchCategory || matchCategory.trim() === "") return false;
+    
+    // Normalize strings for comparison
+    const categoryNormalized = matchCategory.toLowerCase().trim()
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ")
+      .replace(/\s+sk\./g, " sk")
+      .replace(/\s+sk/g, " sk");
+    
+    const compNameNormalized = competition.name.toLowerCase().trim()
+      .replace(/["']/g, "")
+      .replace(/\s+/g, " ");
+
+    // Match by category field if available (most reliable)
+    if (competition.category) {
+      const compCategoryNormalized = competition.category.toLowerCase().trim();
+      if (categoryNormalized === compCategoryNormalized) {
+        return true;
+      }
+    }
+
+    // Extract key words
+    const categoryWords = categoryNormalized
+      .replace(/liga\s*/g, "")
+      .replace(/starších|starší/g, "starsi")
+      .replace(/mladších|mladší/g, "mladsi")
+      .replace(/žáků|žák/g, "zaci")
+      .replace(/sk\.?\s*\d+/g, "")
+      .trim()
+      .split(/\s+/)
+      .filter(w => w && w.length > 1);
+
+    const compNameWords = compNameNormalized
+      .replace(/starší/g, "starsi")
+      .replace(/mladší/g, "mladsi")
+      .replace(/žák/g, "zaci")
+      .trim()
+      .split(/\s+/)
+      .filter(w => w && w.length > 1);
+
+    // Match if all key words from competition name are in category, or vice versa
+    const allCompWordsInCategory = compNameWords.length > 0 && 
+      compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
+    const allCategoryWordsInComp = categoryWords.length > 0 &&
+      categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
+
+    // Direct substring match
+    const directMatch = categoryNormalized.includes(compNameNormalized) ||
+                       compNameNormalized.includes(categoryNormalized) ||
+                       categoryNormalized === compNameNormalized;
+
+    return directMatch || allCompWordsInCategory || allCategoryWordsInComp;
+  };
+
+  // Helper function to assign competitionId to matches based on category matching
+  // This assigns matches to ALL available competitions, not just activeCompetition
   const assignCompetitionIds = (matches: Match[]): Match[] => {
-    if (!activeCompetition) return matches;
+    if (userCompetitions.length === 0) return matches;
     
     // Load manually set flags
     const manuallySetMatchIds = loadManuallySetFlags();
@@ -99,76 +156,36 @@ export default function HomePage() {
         return { ...m, competitionIdManuallySet: true };
       }
       
-      // If match already has competitionId (but not manually set), check if it matches
+      // If match already has competitionId (but not manually set), verify it still matches
       if (m.competitionId && !isManuallySet) {
-        // If it already matches activeCompetition, keep it
-        if (m.competitionId === activeCompetition.id) {
+        const existingCompetition = userCompetitions.find(c => c.id === m.competitionId);
+        if (existingCompetition && m.category && m.category.trim() !== "") {
+          // Verify the match still matches this competition
+          if (matchCategoryToCompetition(m.category, existingCompetition)) {
+            return m; // Keep existing assignment
+          }
+          // If it doesn't match anymore, try to find a better match below
+        } else if (existingCompetition) {
+          // Competition exists but match has no category - keep it
           return m;
         }
-        // If it doesn't match, we'll try to reassign based on category below
+        // If competition doesn't exist, try to find a match below
       }
       
       // Try to match by category (if category exists and is not empty)
       const hasCategory = m.category && m.category.trim() !== "";
       if (hasCategory) {
-        // Normalize strings for comparison
-        const categoryNormalized = m.category.toLowerCase().trim()
-          .replace(/["']/g, "")
-          .replace(/\s+/g, " ")
-          .replace(/\s+sk\./g, " sk")
-          .replace(/\s+sk/g, " sk");
-        
-        const compNameNormalized = activeCompetition.name.toLowerCase().trim()
-          .replace(/["']/g, "")
-          .replace(/\s+/g, " ");
-
-        // Extract key words
-        const categoryWords = categoryNormalized
-          .replace(/liga\s*/g, "")
-          .replace(/starších|starší/g, "starsi")
-          .replace(/mladších|mladší/g, "mladsi")
-          .replace(/žáků|žák/g, "zaci")
-          .replace(/sk\.?\s*\d+/g, "")
-          .trim()
-          .split(/\s+/)
-          .filter(w => w && w.length > 1);
-
-        const compNameWords = compNameNormalized
-          .replace(/starší/g, "starsi")
-          .replace(/mladší/g, "mladsi")
-          .replace(/žák/g, "zaci")
-          .trim()
-          .split(/\s+/)
-          .filter(w => w && w.length > 1);
-
-        // Match if all key words from competition name are in category, or vice versa
-        const allCompWordsInCategory = compNameWords.length > 0 && 
-          compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
-        const allCategoryWordsInComp = categoryWords.length > 0 &&
-          categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-
-        // Direct substring match
-        const directMatch = categoryNormalized.includes(compNameNormalized) ||
-                           compNameNormalized.includes(categoryNormalized) ||
-                           categoryNormalized === compNameNormalized;
-
-        // Match by category field if available
-        const matchesCategory = activeCompetition.category ? 
-                               (categoryNormalized === activeCompetition.category.toLowerCase().trim()) : false;
-
-        if (directMatch || allCompWordsInCategory || allCategoryWordsInComp || matchesCategory) {
-          // Only assign if not manually set
-          if (!isManuallySet) {
-            return { ...m, competitionId: activeCompetition.id, competitionIdManuallySet: false };
+        // Find the best matching competition
+        for (const competition of userCompetitions) {
+          if (matchCategoryToCompetition(m.category, competition)) {
+            // Found a match - assign it
+            console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} (category: "${m.category}") to competition "${competition.name}" (${competition.id})`);
+            return { ...m, competitionId: competition.id, competitionIdManuallySet: false };
           }
         }
       }
       
-      // Don't automatically assign matches without category to activeCompetition
-      // Users should manually assign these matches or they should be matched by category
-      // Automatic assignment was causing issues where matches from different competitions
-      // were incorrectly assigned to the currently active competition
-      
+      // No match found - leave match unassigned
       return m;
     });
   };
@@ -392,35 +409,25 @@ export default function HomePage() {
     };
   }, []);
 
-  // Reassign competitionIds when activeCompetition changes
-  // This effect runs when activeCompetition changes, not when matches change
+  // Reassign competitionIds when competitions list changes (new competition added/removed)
+  // This ensures matches are assigned to newly created competitions
   useEffect(() => {
-    console.log(`[HomePage] useEffect triggered for activeCompetition change:`, {
-      activeCompetitionId: activeCompetition?.id || 'null',
-      activeCompetitionName: activeCompetition?.name || 'null',
-      matchesCount: matches.length
-    });
-    
-    if (matches.length > 0) {
-      console.log(`[HomePage] activeCompetition changed to: ${activeCompetition?.name || 'none'} (${activeCompetition?.id || 'none'}), reassigning competitionIds...`);
-      // Reassign competitionIds to existing matches when activeCompetition changes
+    if (matches.length > 0 && userCompetitions.length > 0) {
+      console.log(`[HomePage] Competitions changed (${userCompetitions.length} competitions), reassigning competitionIds...`);
+      // Reassign competitionIds to existing matches when competitions change
       // Always create new array with new object references to ensure React sees the change
       const reassignedMatches = assignCompetitionIds(matches.map(m => ({ ...m })));
       
       // Check if any competitionIds actually changed
-      const hasChanges = matches.some((m, i) => m.competitionId !== reassignedMatches[i].competitionId);
+      const hasChanges = matches.some((m, i) => m.competitionId !== reassignedMatches[i]?.competitionId);
       
-      console.log(`[HomePage] Reassignment result: hasChanges=${hasChanges}, reassignedMatches.length=${reassignedMatches.length}`);
-      
-      if (hasChanges || activeCompetition) {
-        // Update matches state to trigger filtering recalculation
-        // Even if no changes, we need to trigger re-filtering for the new activeCompetition
-        console.log(`[HomePage] Updating matches state (hasChanges: ${hasChanges}, activeCompetition: ${!!activeCompetition})`);
-      setMatches(reassignedMatches);
+      if (hasChanges) {
+        console.log(`[HomePage] Reassignment result: ${hasChanges ? 'changes detected' : 'no changes'}, updating matches state`);
+        setMatches(reassignedMatches);
         
         // Save competitionId updates back to database if changed (async, don't wait)
         // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
-        if (isSupabaseConfigured() && activeCompetition && hasChanges) {
+        if (isSupabaseConfigured() && hasChanges) {
           reassignedMatches.forEach((match, i) => {
             const oldMatch = matches[i];
             if (match.competitionId && match.competitionId !== oldMatch.competitionId && !match.competitionIdManuallySet) {
@@ -437,14 +444,10 @@ export default function HomePage() {
             }
           });
         }
-      } else {
-        console.log(`[HomePage] No changes detected and no activeCompetition, skipping update`);
       }
-    } else {
-      console.log(`[HomePage] No matches to process (matches.length = 0)`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCompetition?.id]); // Only depend on activeCompetition.id, not matches (to avoid infinite loop)
+  }, [userCompetitions.length]); // Only depend on competitions.length, not matches (to avoid infinite loop)
 
   // Get unique categories from matches
   const categories = Array.from(
@@ -458,76 +461,25 @@ export default function HomePage() {
     }
   }, [categoryFilter, categories]);
 
-  // Helper function to match category with competition name
+  // Helper function to check if a match belongs to a competition
+  // Uses competitionId first (most reliable), then falls back to category matching
   const matchesCompetition = (match: Match, competition: typeof activeCompetition): boolean => {
     if (!competition) {
-      console.log(`[HomePage] matchesCompetition: No competition provided for match ${match.id}`);
       return false;
     }
     
     // Primary: Exact match by competitionId (most reliable)
     if (match.competitionId && match.competitionId === competition.id) {
-      console.log(`[HomePage] matchesCompetition: Match ${match.id} matches by competitionId (${match.competitionId} === ${competition.id})`);
       return true;
     }
     
-    // Fallback: Match by category name (for backward compatibility with old matches)
-    // Treat empty string as "no category" (falsy check handles both null/undefined and empty string)
+    // Fallback: Match by category name (for backward compatibility and unassigned matches)
     if (!match.category || match.category.trim() === "") {
-      console.log(`[HomePage] matchesCompetition: Match ${match.id} has no category, cannot match by category`);
-      return false;
+      return false; // No category means no match
     }
     
-    // Normalize strings for comparison (same logic as in import)
-    const categoryNormalized = match.category.toLowerCase().trim()
-      .replace(/["']/g, "")
-      .replace(/\s+/g, " ")
-      .replace(/\s+sk\./g, " sk")
-      .replace(/\s+sk/g, " sk");
-    
-    const compNameNormalized = competition.name.toLowerCase().trim()
-      .replace(/["']/g, "")
-      .replace(/\s+/g, " ");
-    
-    // Match by category field if available
-    if (competition.category) {
-      const compCategoryNormalized = competition.category.toLowerCase().trim();
-      if (categoryNormalized === compCategoryNormalized) {
-        return true;
-      }
-    }
-    
-    // Extract key words
-    const categoryWords = categoryNormalized
-      .replace(/liga\s*/g, "")
-      .replace(/starších|starší/g, "starsi")
-      .replace(/mladších|mladší/g, "mladsi")
-      .replace(/žáků|žák/g, "zaci")
-      .replace(/sk\.?\s*\d+/g, "")
-      .trim()
-      .split(/\s+/)
-      .filter(w => w && w.length > 1);
-    
-    const compNameWords = compNameNormalized
-      .replace(/starší/g, "starsi")
-      .replace(/mladší/g, "mladsi")
-      .replace(/žák/g, "zaci")
-      .trim()
-      .split(/\s+/)
-      .filter(w => w && w.length > 1);
-    
-    // Match if all key words from competition name are in category, or vice versa
-    const allCompWordsInCategory = compNameWords.length > 0 && 
-      compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
-    const allCategoryWordsInComp = categoryWords.length > 0 &&
-      categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-    
-    // Direct substring match
-    const directMatch = categoryNormalized.includes(compNameNormalized) ||
-                       compNameNormalized.includes(categoryNormalized) ||
-                       categoryNormalized === compNameNormalized;
-    
-    return directMatch || allCompWordsInCategory || allCategoryWordsInComp;
+    // Use the same matching logic as assignCompetitionIds
+    return matchCategoryToCompetition(match.category, competition);
   };
 
   // Filter matches by active competition first (if set), then by category
@@ -540,20 +492,23 @@ export default function HomePage() {
     });
     
     const filtered = matches.filter((m) => {
+    // If activeCompetition is null, show only unassigned matches (no competitionId and no category)
+    if (activeCompetition === null) {
+      const hasCategory = m.category && m.category.trim() !== "";
+      const hasCompetitionId = !!m.competitionId;
+      
+      // Show only matches without competitionId and without category
+      const isUnassigned = !hasCompetitionId && !hasCategory;
+      if (isUnassigned) {
+        console.log(`[HomePage] Match ${m.id} included in "Nezařazené": no competitionId, no category`);
+      } else {
+        console.log(`[HomePage] Match ${m.id} filtered out from "Nezařazené": has competitionId or category`);
+      }
+      return isUnassigned;
+    }
+    
     // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
-        // Treat empty string as "no category" - check both null/undefined and empty string
-        const hasCategory = m.category && m.category.trim() !== "";
-        const hasCompetitionId = !!m.competitionId;
-        
-        // If match has no competitionId and no category, it's truly unassigned
-        // These matches cannot be automatically assigned and should be deleted or manually assigned
-        // For now, hide them to avoid confusion - they can be manually assigned via match detail page
-        if (!hasCompetitionId && !hasCategory) {
-          console.log(`[HomePage] Match ${m.id} filtered out: truly unassigned (no competitionId, no category) - should be deleted or manually assigned`);
-          return false; // Hide unassigned matches - they should be deleted or manually assigned
-        }
-        
         const matches = matchesCompetition(m, activeCompetition);
         if (!matches) {
           console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category || '(empty)'}", competitionId="${m.competitionId || '(none)'}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);

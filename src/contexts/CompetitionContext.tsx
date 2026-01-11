@@ -23,7 +23,7 @@ interface CompetitionContextType {
   isLoading: boolean;
   
   // Actions
-  setActiveCompetitionId: (id: string) => void;
+  setActiveCompetitionId: (id: string | null) => void;
   addCompetition: (data: Omit<UserCompetition, 'id' | 'createdAt'>) => UserCompetition;
   updateCompetition: (id: string, data: Partial<UserCompetition>) => void;
   deleteCompetition: (id: string) => void;
@@ -135,8 +135,14 @@ export function CompetitionProvider({ children }: CompetitionProviderProps) {
   // Actions
   // ─────────────────────────────────────────────────────────────────────────
   
-  const setActiveCompetitionId = useCallback((id: string) => {
-    console.log(`[CompetitionContext] setActiveCompetitionId called with id: ${id}`);
+  const setActiveCompetitionId = useCallback((id: string | null) => {
+    console.log(`[CompetitionContext] setActiveCompetitionId called with id: ${id || 'null (unassigned)'}`);
+    // Allow null for "Nezařazené" (unassigned matches)
+    if (id === null) {
+      console.log(`[CompetitionContext] Setting activeCompetitionIdState to null (unassigned)`);
+      setActiveCompetitionIdState(null);
+      return;
+    }
     // Verify competition exists
     const exists = competitions.some(c => c.id === id);
     console.log(`[CompetitionContext] Competition exists: ${exists}, current activeCompetitionId: ${activeCompetitionId}`);
