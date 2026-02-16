@@ -272,7 +272,7 @@ export default function HomePage() {
 
       if (data.success && data.matches) {
         // Check for duplicates before saving
-        const existingMatches = getMatchesLocal();
+        const existingMatches = matches;
         const existingByExternalId = new Map(
           existingMatches.filter(m => m.externalId).map(m => [m.externalId!, m])
         );
@@ -344,7 +344,7 @@ export default function HomePage() {
     }
   };
 
-  const handleJsonImport = () => {
+  const handleJsonImport = async () => {
     setImporting(true);
     setImportResult(null);
     try {
@@ -392,7 +392,7 @@ export default function HomePage() {
     }
   };
 
-  const handleManualStatsSave = (data: {
+  const handleManualStatsSave = async (data: {
     goalieId: string;
     shots: number;
     saves: number;

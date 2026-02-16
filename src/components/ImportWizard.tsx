@@ -5,6 +5,7 @@ import type {
   Match,
   Goalie,
   Team,
+  Competition,
 } from "@/lib/types";
 import {
   getGoalies,
@@ -147,9 +148,10 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         const competitionName = mapCategoryToCompetitionName(categoryName);
         
         // Check if competition with this name already exists
-        let existingCompetition = userCompetitions.find(
-          (c) => c.name.toLowerCase() === competitionName.toLowerCase()
-        );
+        let existingCompetition: Competition | null =
+          userCompetitions.find(
+            (c) => c.name.toLowerCase() === competitionName.toLowerCase()
+          ) || null;
         
         // If not found, create new competition automatically
         if (!existingCompetition) {

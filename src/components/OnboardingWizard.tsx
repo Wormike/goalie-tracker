@@ -193,7 +193,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                         </div>
                       )}
                       <div className="mt-1 text-xs text-slate-500">
-                        Vytvořeno: {new Date(comp.createdAt).toLocaleDateString("cs-CZ")}
+                        Vytvořeno: {comp.createdAt ? new Date(comp.createdAt).toLocaleDateString("cs-CZ") : "Neznámé"}
                       </div>
                     </button>
                   ))}

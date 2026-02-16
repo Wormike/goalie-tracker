@@ -1125,7 +1125,7 @@ export default function MatchPage() {
           const refreshed = await dataService.getEvents(match.id);
           setEvents(refreshed.filter((e) => e.status !== "deleted"));
           setAllEvents(refreshed);
-          setCurrentSituation(situation);
+          setCurrentSituation(situation ?? "even");
 
           syncNow().catch(err => {
             console.error('[MatchPage] Background sync failed:', err);

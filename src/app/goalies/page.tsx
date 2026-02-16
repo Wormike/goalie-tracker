@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Goalie, GoalieEvent, Match } from "@/lib/types";
+import { calculateGoalieStats } from "@/lib/storage";
 import { dataService } from "@/lib/dataService";
 import { useAutoSync } from "@/hooks/useAutoSync";
 

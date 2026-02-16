@@ -8,6 +8,7 @@ import * as storage from "@/lib/storage";
 import * as matchesRepo from "@/lib/repositories/matches";
 import * as goaliesRepo from "@/lib/repositories/goalies";
 import * as eventsRepo from "@/lib/repositories/events";
+import type { CreateEventPayload } from "@/lib/repositories/events";
 import * as competitionsRepo from "@/lib/repositories/competitions";
 
 const ID_MAP_KEY = "goalie-tracker-id-map";
@@ -70,6 +71,48 @@ function normalizeEventIds(event: GoalieEvent): GoalieEvent {
   };
 }
 
+function normalizeEventStatus(status?: GoalieEvent["status"]): "confirmed" | "pending" | "deleted" | undefined {
+  if (!status) return undefined;
+  if (status === "edited") return "confirmed";
+  return status as "confirmed" | "pending" | "deleted";
+}
+
+function mapSituationToPayload(
+  situation?: GoalieEvent["situation"]
+): "even" | "pp" | "sh" | "4v4" | "3v3" | undefined {
+  if (!situation) return undefined;
+  if (situation === "powerplay") return "pp";
+  if (situation === "shorthanded") return "sh";
+  return situation as "even" | "pp" | "sh" | "4v4" | "3v3";
+}
+
+function eventToPayload(event: GoalieEvent): CreateEventPayload {
+  const period = event.period === "OT" ? "OT" : (String(event.period) as "1" | "2" | "3");
+  const status = normalizeEventStatus(event.status);
+  const situation = mapSituationToPayload(event.situation);
+  return {
+    match_id: event.matchId,
+    goalie_id: event.goalieId || undefined,
+    period,
+    game_time: event.gameTime || "00:00",
+    result: event.result,
+    shot_x: event.shotPosition?.x,
+    shot_y: event.shotPosition?.y,
+    shot_zone: event.shotPosition?.zone,
+    goal_x: event.goalPosition?.x,
+    goal_y: event.goalPosition?.y,
+    goal_zone: event.goalPosition?.zone,
+    shot_type: event.shotType,
+    save_type: event.saveType,
+    goal_type: event.goalType,
+    situation,
+    is_rebound: event.isRebound ?? event.rebound,
+    is_screened: event.isScreened ?? event.screenedView,
+    status,
+    input_source: event.inputSource,
+  };
+}
+
 function matchToCreatePayload(match: Match): matchesRepo.CreateMatchPayload {
   return {
     home_team_id: match.homeTeamId,
@@ -115,7 +158,7 @@ export const dataService = {
     if (isSupabaseConfigured()) {
       const payload = matchToCreatePayload(normalized);
       let saved: Match | null = null;
-      if (matchesRepo.isUuid(normalized.id)) {
+      if (isUuid(normalized.id)) {
         saved = await matchesRepo.updateMatch(normalized.id, payload);
       }
       if (!saved) {
@@ -135,7 +178,7 @@ export const dataService = {
   async deleteMatch(id: string): Promise<boolean> {
     const normalizedId = ensureUuid(id);
     let success = true;
-    if (isSupabaseConfigured() && matchesRepo.isUuid(normalizedId)) {
+    if (isSupabaseConfigured() && isUuid(normalizedId)) {
       success = await matchesRepo.deleteMatch(normalizedId);
     }
     storage.deleteMatch(id);
@@ -160,7 +203,7 @@ export const dataService = {
 
     if (isSupabaseConfigured()) {
       let saved: Goalie | null = null;
-      if (matchesRepo.isUuid(normalized.id)) {
+      if (isUuid(normalized.id)) {
         saved = await goaliesRepo.updateGoalie(normalized.id, normalized);
       }
       if (!saved) {
@@ -180,7 +223,7 @@ export const dataService = {
   async deleteGoalie(id: string): Promise<boolean> {
     const normalizedId = ensureUuid(id);
     let success = true;
-    if (isSupabaseConfigured() && matchesRepo.isUuid(normalizedId)) {
+    if (isSupabaseConfigured() && isUuid(normalizedId)) {
       success = await goaliesRepo.deleteGoalie(normalizedId);
     }
     storage.deleteGoalie(id);
@@ -190,11 +233,11 @@ export const dataService = {
   async getEvents(matchId?: string): Promise<GoalieEvent[]> {
     if (isSupabaseConfigured()) {
       try {
-        if (matchId && matchesRepo.isUuid(matchId)) {
+        if (matchId && isUuid(matchId)) {
           const remote = await eventsRepo.getEventsForMatch(matchId);
           return remote;
         }
-        const remote = await eventsRepo.getEvents();
+        const remote = await eventsRepo.getAllEvents();
         return remote;
       } catch (err) {
         console.error("[dataService] getEvents failed, falling back to local:", err);
@@ -206,14 +249,16 @@ export const dataService = {
 
   async saveEvent(event: GoalieEvent): Promise<GoalieEvent> {
     const normalized = normalizeEventIds(event);
+    const payload = eventToPayload(normalized);
 
     if (isSupabaseConfigured()) {
       let saved: GoalieEvent | null = null;
-      if (matchesRepo.isUuid(normalized.id)) {
-        saved = await eventsRepo.updateEvent(normalized.id, normalized);
+      if (isUuid(normalized.id)) {
+        const { match_id: _matchId, ...updatePayload } = payload;
+        saved = await eventsRepo.updateEvent(normalized.id, updatePayload);
       }
       if (!saved) {
-        saved = await eventsRepo.createEvent(normalized);
+        saved = await eventsRepo.createEvent(payload);
       }
       if (saved) {
         storage.saveEvent(saved);
@@ -229,7 +274,7 @@ export const dataService = {
   async deleteEvent(id: string): Promise<boolean> {
     const normalizedId = ensureUuid(id);
     let success = true;
-    if (isSupabaseConfigured() && matchesRepo.isUuid(normalizedId)) {
+    if (isSupabaseConfigured() && isUuid(normalizedId)) {
       success = await eventsRepo.deleteEvent(normalizedId);
     }
     storage.deleteEvent(id);
@@ -251,12 +296,12 @@ export const dataService = {
   async saveCompetition(comp: Competition): Promise<Competition> {
     const normalized: Competition = {
       ...comp,
-      id: comp.id ? ensureUuid(comp.id) : uuidv4(),
+      id: comp.id ? ensureUuid(comp.id) : generateId(),
     };
 
     if (isSupabaseConfigured()) {
       let saved: Competition | null = null;
-      if (matchesRepo.isUuid(normalized.id)) {
+      if (isUuid(normalized.id)) {
         saved = await competitionsRepo.updateCompetition(normalized.id, normalized);
       }
       if (!saved) {
