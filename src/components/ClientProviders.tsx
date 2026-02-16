@@ -1,7 +1,9 @@
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
-import { CompetitionProvider } from "@/contexts/CompetitionContext";
+import { CompetitionProvider } from "@/lib/competitionService";
+import { ToastProvider } from "@/contexts/ToastContext";
+import { ToastViewport } from "@/components/Toast";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { runMigrations } from "@/lib/migration";
 
@@ -28,11 +30,14 @@ export function ClientProviders({ children }: ClientProvidersProps) {
   }
 
   return (
-    <CompetitionProvider>
-      {/* Onboarding wizard shows automatically when no competitions exist */}
-      <OnboardingWizard />
-      {children}
-    </CompetitionProvider>
+    <ToastProvider>
+      <CompetitionProvider>
+        {/* Onboarding wizard shows automatically when no competitions exist */}
+        <OnboardingWizard />
+        {children}
+      </CompetitionProvider>
+      <ToastViewport />
+    </ToastProvider>
   );
 }
 

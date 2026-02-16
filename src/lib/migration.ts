@@ -5,8 +5,10 @@
  * They run automatically on app startup.
  */
 
+import { v4 as uuidv4 } from "uuid";
+
 const MIGRATION_VERSION_KEY = 'goalie-tracker-migration-version';
-const CURRENT_MIGRATION_VERSION = 1;
+const CURRENT_MIGRATION_VERSION = 2;
 
 /**
  * Run all pending migrations on app startup
@@ -22,11 +24,10 @@ export function runMigrations(): void {
     setMigrationVersion(1);
   }
 
-  // Add future migrations here as:
-  // if (currentVersion < 2) {
-  //   migrateSomething();
-  //   setMigrationVersion(2);
-  // }
+  if (currentVersion < 2) {
+    migrateCompetitionStorage();
+    setMigrationVersion(2);
+  }
 }
 
 /**
@@ -53,35 +54,30 @@ function setMigrationVersion(version: number): void {
 }
 
 /**
- * Migration v1: Create default user competitions from existing match categories
+ * Migration v1: Create default competitions from existing match categories
  * 
- * If the user has existing matches but no user-competitions, this creates
+ * If the user has existing matches but no competitions, this creates
  * one competition for each unique category found in their matches.
  */
 function migrateToUserCompetitions(): void {
-  console.log('[Migration] Running migration to user competitions...');
-
   try {
     // Check if user already has competitions
-    const existingCompetitions = localStorage.getItem('user-competitions');
+    const existingCompetitions = localStorage.getItem('goalie-tracker-competitions');
     if (existingCompetitions) {
       const parsed = JSON.parse(existingCompetitions);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        console.log('[Migration] User already has competitions, skipping migration');
         return;
       }
     }
 
     // Get existing matches
-    const matchesJson = localStorage.getItem('matches');
+    const matchesJson = localStorage.getItem('goalie-tracker-matches') || localStorage.getItem('matches');
     if (!matchesJson) {
-      console.log('[Migration] No matches found, skipping migration');
       return;
     }
 
     const matches = JSON.parse(matchesJson);
     if (!Array.isArray(matches) || matches.length === 0) {
-      console.log('[Migration] No matches found, skipping migration');
       return;
     }
 
@@ -94,31 +90,72 @@ function migrateToUserCompetitions(): void {
     }
 
     if (categories.size === 0) {
-      console.log('[Migration] No categories found in matches, skipping migration');
       return;
     }
 
     // Create user competitions for each category
-    const userCompetitions = Array.from(categories).map((category, index) => ({
-      id: `migrated-${index}-${Date.now()}`,
+    const userCompetitions = Array.from(categories).map((category) => ({
+      id: uuidv4(),
       name: category,
       category: category,
+      seasonId: "",
+      source: "manual",
       createdAt: new Date().toISOString(),
     }));
 
     // Save the new competitions
-    localStorage.setItem('user-competitions', JSON.stringify(userCompetitions));
+    localStorage.setItem('goalie-tracker-competitions', JSON.stringify(userCompetitions));
 
     // Set the first one as active
     if (userCompetitions.length > 0) {
       localStorage.setItem('active-competition-id', userCompetitions[0].id);
     }
 
-    console.log(`[Migration] Created ${userCompetitions.length} competitions from existing categories:`, 
-      userCompetitions.map(c => c.name));
-
   } catch (err) {
     console.error('[Migration] Failed to migrate to user competitions:', err);
+  }
+}
+
+/**
+ * Migration v2: Unify competitions storage
+ * - Move legacy "user-competitions" into "goalie-tracker-competitions" if needed
+ * - Remove legacy key
+ */
+function migrateCompetitionStorage(): void {
+  try {
+    const legacyRaw = localStorage.getItem("user-competitions");
+    if (!legacyRaw) {
+      localStorage.removeItem("user-competitions");
+      return;
+    }
+
+    const legacy = JSON.parse(legacyRaw);
+    const currentRaw = localStorage.getItem("goalie-tracker-competitions");
+    const current = currentRaw ? JSON.parse(currentRaw) : [];
+
+    if (Array.isArray(legacy) && legacy.length > 0 && (!Array.isArray(current) || current.length === 0)) {
+      const migrated = legacy.map((comp: { name: string; standingsUrl?: string; category?: string; seasonId?: string; createdAt?: string; }) => ({
+        id: uuidv4(),
+        name: comp.name,
+        category: comp.category || "",
+        seasonId: comp.seasonId || "",
+        standingsUrl: comp.standingsUrl,
+        source: "manual",
+        createdAt: comp.createdAt || new Date().toISOString(),
+      }));
+
+      localStorage.setItem("goalie-tracker-competitions", JSON.stringify(migrated));
+
+      const activeId = localStorage.getItem("active-competition-id");
+      if (activeId) {
+        const byName = migrated.find((c) => c.name && legacy.find((l: { id: string; name: string }) => l.id === activeId && l.name === c.name));
+        localStorage.setItem("active-competition-id", byName?.id || migrated[0].id);
+      }
+    }
+
+    localStorage.removeItem("user-competitions");
+  } catch (err) {
+    console.error("[Migration] Failed to migrate competitions storage:", err);
   }
 }
 
@@ -135,6 +172,8 @@ export function isMigrationNeeded(): boolean {
 export function resetMigrationVersion(): void {
   localStorage.removeItem(MIGRATION_VERSION_KEY);
 }
+
+
 
 
 

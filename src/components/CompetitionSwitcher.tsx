@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 
 interface CompetitionSwitcherProps {
   className?: string;
@@ -18,7 +18,7 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
     activeCompetition, 
     setActiveCompetitionId,
     hasCompetitions,
-  } = useCompetition();
+  } = useCompetitions();
   
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -57,10 +57,7 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
   }
 
   const handleSelect = (id: string | null) => {
-    console.log(`[CompetitionSwitcher] handleSelect called with id: ${id || 'null (unassigned)'}`);
-    console.log(`[CompetitionSwitcher] Current activeCompetition:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null');
     setActiveCompetitionId(id);
-    console.log(`[CompetitionSwitcher] setActiveCompetitionId(${id || 'null'}) called`);
     setIsOpen(false);
   };
 
@@ -164,7 +161,7 @@ function ChevronIcon({ className = "" }: { className?: string }) {
  * Compact version for inline display - just shows the active competition name
  */
 export function ActiveCompetitionBadge({ className = "" }: { className?: string }) {
-  const { activeCompetition, hasCompetitions } = useCompetition();
+  const { activeCompetition, hasCompetitions } = useCompetitions();
 
   if (!hasCompetitions || !activeCompetition) {
     return null;

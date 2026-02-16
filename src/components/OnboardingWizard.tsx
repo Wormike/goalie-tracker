@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 
 interface OnboardingWizardProps {
   onComplete?: () => void;
@@ -19,7 +19,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     setActiveCompetitionId,
     needsOnboarding, 
     isLoading 
-  } = useCompetition();
+  } = useCompetitions();
   
   const [mode, setMode] = useState<"select" | "create">("select");
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string>("");
@@ -85,13 +85,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
     try {
       // Create the competition
-      const newComp = addCompetition({
+      const newComp = await addCompetition({
         name: trimmedName,
         standingsUrl: standingsUrl.trim() || undefined,
+        category: "",
+        seasonId: "",
+        source: "manual",
       });
-
-      // Set as active
-      setActiveCompetitionId(newComp.id);
+      if (newComp) {
+        setActiveCompetitionId(newComp.id);
+      }
 
       // Call completion callback
       onComplete?.();

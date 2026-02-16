@@ -19,32 +19,10 @@ import type {
   Goalie,
   MatchStatus,
 } from "@/lib/types";
-import {
-  getMatchById as getMatchByIdLocal,
-  getEventsByMatch as getEventsByMatchLocal,
-  getAllEventsByMatch,
-  saveEvent as saveEventLocal,
-  getGoalieById,
-  getGoalies as getGoaliesLocal,
-  saveMatch as saveMatchLocal,
-  saveEvents,
-  getEvents,
-} from "@/lib/storage";
-import {
-  getMatchById as getMatchByIdSupabase,
-  updateMatch as updateMatchSupabase,
-} from "@/lib/repositories/matches";
-import {
-  getGoalies as getGoaliesSupabase,
-} from "@/lib/repositories/goalies";
-import {
-  getEventsForMatch as getEventsForMatchSupabase,
-  createEvent as createEventSupabase,
-} from "@/lib/repositories/events";
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { dataService } from "@/lib/dataService";
 import { generateMatchReport, shareText } from "@/lib/utils";
 import { useAutoSync } from "@/hooks/useAutoSync";
-import { useCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 
 function getZoneFromCoords(x: number, y: number): ShotZone {
   if (y < 30) return "blue_line";
@@ -55,13 +33,7 @@ function getZoneFromCoords(x: number, y: number): ShotZone {
 }
 
 function generateEventId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function isUuid(value: string): boolean {
-  const uuidRegex =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(value);
+  return crypto.randomUUID();
 }
 
 export default function MatchPage() {
@@ -89,131 +61,62 @@ export default function MatchPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showEventList, setShowEventList] = useState(false);
   const [activeTab, setActiveTab] = useState<"tracking" | "roster">("tracking");
-  const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   const [loading, setLoading] = useState(true);
-  const { competitions: userCompetitions } = useCompetition();
+  const [currentSituation, setCurrentSituation] = useState<SituationType>("even");
+  const { competitions: userCompetitions } = useCompetitions();
 
-  // Load match data - try Supabase first, fall back to localStorage
+  // Load match data
   const loadMatchData = async (matchId: string) => {
     setLoading(true);
-    
-    let loadedMatch: Match | null = null;
-    let loadedEvents: GoalieEvent[] = [];
-    
-    if (isSupabaseConfigured() && isUuid(matchId)) {
-      try {
-        // Try loading from Supabase
-        const supabaseMatch = await getMatchByIdSupabase(matchId);
-        if (supabaseMatch) {
-          loadedMatch = supabaseMatch;
-          setDataSource("supabase");
-          
-          // Load events from Supabase
-          loadedEvents = await getEventsForMatchSupabase(matchId);
-        }
-      } catch (err) {
-        console.error("[MatchPage] Failed to load from Supabase:", err);
-      }
-    }
-    
-    // Fallback to localStorage
+    const [matches, eventsForMatch, goaliesList] = await Promise.all([
+      dataService.getMatches(),
+      dataService.getEvents(matchId),
+      dataService.getGoalies(),
+    ]);
+
+    const loadedMatch = matches.find((m) => m.id === matchId) || null;
     if (!loadedMatch) {
-      const localMatch = getMatchByIdLocal(matchId);
-      if (localMatch) {
-        loadedMatch = localMatch;
-        setDataSource("local");
-        loadedEvents = getEventsByMatchLocal(localMatch.id);
-      }
+      setLoading(false);
+      return;
     }
+
+    const filteredEvents = eventsForMatch.filter((e) => e.status !== "deleted");
+
+    const hasGoalie = !!loadedMatch.goalieId;
+    const hasEvents = filteredEvents.length > 0;
+    const isCompleted = isMatchCompleted(loadedMatch.status) || loadedMatch.completed;
     
-    if (loadedMatch) {
-      // Auto-revert logic: If match is completed but has no goalie and no events,
-      // automatically revert it to upcoming with original datetime
-      const hasGoalie = !!loadedMatch.goalieId;
-      const hasEvents = loadedEvents.length > 0;
-      const isCompleted = isMatchCompleted(loadedMatch.status) || loadedMatch.completed;
-      
-      if (isCompleted && !hasGoalie && !hasEvents) {
-        // Match is completed but empty - revert to upcoming
-        const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
-        const metadata = matchMetadata[loadedMatch.id];
-        const originalDatetime = metadata?.originalDatetime || loadedMatch.datetime;
-        
-        const revertedMatch: Match = {
-          ...loadedMatch,
-          status: "scheduled" as MatchStatus,
-          completed: false,
-          datetime: originalDatetime,
-        };
-        
-        if (dataSource === "supabase") {
-          const updated = await updateMatchSupabase(loadedMatch.id, {
-            status: "scheduled",
-            completed: false,
-            datetime: originalDatetime,
-          });
-          if (updated) {
-            loadedMatch = updated;
-          }
-        } else {
-          saveMatchLocal(revertedMatch);
-          loadedMatch = revertedMatch;
-        }
-        
-        console.log('[MatchPage] Auto-reverted empty completed match to upcoming');
-      }
-      
+    if (isCompleted && !hasGoalie && !hasEvents) {
+      const matchMetadata = JSON.parse(localStorage.getItem('match-metadata') || '{}');
+      const metadata = matchMetadata[loadedMatch.id];
+      const originalDatetime = metadata?.originalDatetime || loadedMatch.datetime;
+
+      const revertedMatch: Match = {
+        ...loadedMatch,
+        status: "scheduled" as MatchStatus,
+        completed: false,
+        datetime: originalDatetime,
+      };
+
+      await dataService.saveMatch(revertedMatch);
+      setMatch(revertedMatch);
+    } else {
       setMatch(loadedMatch);
-      setEvents(loadedEvents);
-      setAllEvents(getAllEventsByMatch ? getAllEventsByMatch(loadedMatch.id) : loadedEvents);
-      
-      if (loadedMatch.goalieId) {
-        setGoalie(getGoalieById(loadedMatch.goalieId) || null);
-      }
     }
-    
+
+    setEvents(filteredEvents);
+    setAllEvents(eventsForMatch);
+    setGoalies(goaliesList);
+    setGoalie(goaliesList.find((g) => g.id === loadedMatch.goalieId) || null);
     setLoading(false);
   };
 
-  // Load goalies function - try Supabase first, fall back to localStorage
   const loadGoalies = async () => {
-    let loadedGoalies: Goalie[] = [];
-    
-    if (isSupabaseConfigured()) {
-      try {
-        const supabaseGoalies = await getGoaliesSupabase();
-        if (supabaseGoalies.length > 0) {
-          loadedGoalies = supabaseGoalies;
-          console.log('[MatchPage] Loaded goalies from Supabase:', loadedGoalies.length);
-        }
-      } catch (err) {
-        console.error("[MatchPage] Failed to load goalies from Supabase:", err);
-      }
-    }
-    
-    // Fallback to localStorage if Supabase failed or returned no goalies
-    if (loadedGoalies.length === 0) {
-      loadedGoalies = getGoaliesLocal();
-      console.log('[MatchPage] Loaded goalies from localStorage:', loadedGoalies.length);
-    }
-    
+    const loadedGoalies = await dataService.getGoalies();
     setGoalies(loadedGoalies);
-    
-    // Update current goalie if match has goalieId
     if (match?.goalieId) {
       const foundGoalie = loadedGoalies.find(g => g.id === match.goalieId);
-      if (foundGoalie) {
-        setGoalie(foundGoalie);
-      } else {
-        // Try to get goalie by ID from storage/repository
-        const goalieById = getGoalieById(match.goalieId);
-        if (goalieById) {
-          setGoalie(goalieById);
-        } else {
-          // Goalie not found - clear selection
-          setGoalie(null);
-        }
-      }
+      setGoalie(foundGoalie || null);
     }
   };
 
@@ -274,7 +177,6 @@ export default function MatchPage() {
         
         // Only revert if datetime is today (moved when closed) and different from original
         if (isToday && originalDatetimeTime !== matchDatetime) {
-          console.log('[MatchPage] Auto-reverting empty completed match to upcoming with original datetime');
           
           const revertedMatch: Match = {
             ...match,
@@ -284,24 +186,10 @@ export default function MatchPage() {
           };
           
           const revertMatch = async () => {
-            if (dataSource === "supabase") {
-              const updated = await updateMatchSupabase(match.id, {
-                status: "scheduled",
-                datetime: originalDatetime,
-              });
-              if (updated) {
-                setMatch(updated);
-                // Navigate back to home after auto-revert
-                setTimeout(() => router.push('/'), 500);
-              }
-            } else {
-              saveMatchLocal(revertedMatch);
-              setMatch(revertedMatch);
-              // Navigate back to home after auto-revert
-              setTimeout(() => router.push('/'), 500);
-            }
-            
-            // Trigger sync
+            const saved = await dataService.saveMatch(revertedMatch);
+            setMatch(saved);
+            setTimeout(() => router.push('/'), 500);
+
             syncNow().catch(err => {
               console.error('[MatchPage] Background sync failed:', err);
             });
@@ -311,40 +199,34 @@ export default function MatchPage() {
         }
       }
     }
-  }, [match?.status, match?.completed, match?.goalieId, events.length, match?.id, match?.datetime, dataSource]);
+  }, [match?.status, match?.completed, match?.goalieId, events.length, match?.id, match?.datetime]);
 
-  // Auto-refresh events when match changes (for local storage mode)
+  // Auto-refresh events when match changes
   useEffect(() => {
-    if (match && dataSource === "local") {
-      const loadedEvents = getEventsByMatchLocal(match.id);
-      const loadedAllEvents = getAllEventsByMatch(match.id);
-      console.log('[MatchPage] Auto-refresh events:', {
-        matchId: match.id,
-        eventsCount: loadedEvents.length,
-        allEventsCount: loadedAllEvents.length,
-      });
-      setEvents(loadedEvents);
-      setAllEvents(loadedAllEvents);
-    }
-  }, [match, dataSource]);
+    if (!match) return;
+    dataService.getEvents(match.id).then((loaded) => {
+      setEvents(loaded.filter((e) => e.status !== "deleted"));
+      setAllEvents(loaded);
+    });
+  }, [match]);
 
   // Force reload events when page becomes visible (mobile fix)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && match && dataSource === 'local') {
-        // Reload events when user comes back to the page
-        const reloadedEvents = getEventsByMatchLocal(match.id);
-        if (reloadedEvents.length !== events.length) {
-          setEvents(reloadedEvents);
-          setAllEvents(getAllEventsByMatch(match.id));
-          console.log('[MatchPage] Reloaded events on visibility change:', reloadedEvents.length);
-        }
+      if (document.visibilityState === 'visible' && match) {
+        dataService.getEvents(match.id).then((reloadedEvents) => {
+          const visibleEvents = reloadedEvents.filter((e) => e.status !== "deleted");
+          if (visibleEvents.length !== events.length) {
+            setEvents(visibleEvents);
+            setAllEvents(reloadedEvents);
+          }
+        });
       }
     };
-    
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [match, dataSource, events.length]);
+  }, [match, events.length]);
 
   const isMatchClosed = match ? (isMatchCompleted(match.status) || match.status === "cancelled" || match.completed) : false;
 
@@ -380,62 +262,30 @@ export default function MatchPage() {
   const addEventQuick = async (result: "save" | "goal" | "miss") => {
     if (!match || isMatchClosed) return;
     const now = new Date().toISOString();
-    const zone: ShotZone = "slot";
+    const zone: ShotZone = getZoneFromCoords(50, 50);
 
-    if (dataSource === "supabase") {
-      // Create event in Supabase
-      const periodStr = period === "OT" ? "OT" : String(period) as "1" | "2" | "3";
-      const createdEvent = await createEventSupabase({
-        match_id: match.id,
-        goalie_id: goalie?.id,
-        period: periodStr,
-        game_time: gameTime,
-        result,
-        shot_x: 50,
-        shot_y: 50,
-        input_source: "live",
-      });
-      
-      if (createdEvent) {
-        setEvents((prev) => [...prev, createdEvent]);
-        setAllEvents((prev) => [...prev, createdEvent]);
-      } else {
-        console.error("[MatchPage] Failed to create event in Supabase");
-      }
-    } else {
-      // Create event in localStorage
-      const newEvent: GoalieEvent = {
-        id: generateEventId(),
-        matchId: match.id,
-        goalieId: goalie?.id || "",
-        period,
-        gameTime,
-        timestamp: now,
-        result,
-        shotPosition: { x: 50, y: 50, zone },
-        situation: "even" as SituationType,
-        inputSource: "live",
-        status: "confirmed",
-        createdAt: now,
-      };
-      
-      saveEventLocal(newEvent);
-      
-      // Re-read from storage to ensure consistency
-      const updatedEvents = getEventsByMatchLocal(match.id);
-      const updatedAllEvents = getAllEventsByMatch(match.id);
-      console.log('[MatchPage] Saved event, reloaded:', {
-        eventId: newEvent.id,
-        updatedEventsCount: updatedEvents.length,
-        updatedAllEventsCount: updatedAllEvents.length,
-      });
-      setEvents(updatedEvents);
-      setAllEvents(updatedAllEvents);
-      
-      // Trigger sync to Supabase (background)
-      syncNow().catch(err => {
-        console.error('[MatchPage] Background sync failed:', err);
-      });
+    const newEvent: GoalieEvent = {
+      id: generateEventId(),
+      matchId: match.id,
+      goalieId: goalie?.id || "",
+      period,
+      gameTime,
+      timestamp: now,
+      result,
+      shotPosition: { x: 50, y: 50, zone },
+      situation: currentSituation,
+      inputSource: "live",
+      status: "confirmed",
+      createdAt: now,
+    };
+
+    const saved = await dataService.saveEvent(newEvent);
+    const updatedAllEvents = await dataService.getEvents(match.id);
+    setEvents(updatedAllEvents.filter((e) => e.status !== "deleted"));
+    setAllEvents(updatedAllEvents);
+
+    if (!saved) {
+      console.error("[MatchPage] Failed to save quick event");
     }
   };
 
@@ -445,51 +295,20 @@ export default function MatchPage() {
     // If goalieId is empty string, convert to null to allow removal
     const finalGoalieId = goalieId && goalieId.trim() !== "" ? goalieId : undefined;
     
-    if (dataSource === "supabase") {
-      // Update in Supabase
-      const updated = await updateMatchSupabase(match.id, { goalie_id: finalGoalieId });
-      if (updated) {
-        setMatch(updated);
-        // Reload goalie state from updated match - try to find in current goalies list first
-        if (updated.goalieId) {
-          const foundGoalie = goalies.find(g => g.id === updated.goalieId);
-          if (foundGoalie) {
-            setGoalie(foundGoalie);
-          } else {
-            // Fallback to getGoalieById (localStorage)
-            setGoalie(getGoalieById(updated.goalieId) || null);
-          }
-        } else {
-          setGoalie(null);
-        }
-      }
-    } else {
-      // Update in localStorage - ensure goalieId persists
-      const updatedMatch = { ...match, goalieId: finalGoalieId };
-      saveMatchLocal(updatedMatch);
-      setMatch(updatedMatch);
-      
-      // Update goalie state - try to find in current goalies list first
-      if (finalGoalieId) {
-        const foundGoalie = goalies.find(g => g.id === finalGoalieId);
-        if (foundGoalie) {
-          setGoalie(foundGoalie);
-        } else {
-          // Fallback to getGoalieById (localStorage)
-          setGoalie(getGoalieById(finalGoalieId) || null);
-        }
-      } else {
-        setGoalie(null);
-      }
+    const updatedMatch = { ...match, goalieId: finalGoalieId };
+    const saved = await dataService.saveMatch(updatedMatch);
+    setMatch(saved);
+    setGoalie(finalGoalieId ? goalies.find(g => g.id === finalGoalieId) || null : null);
 
-      // Update all events with new goalie ID if goalie is assigned
-      if (finalGoalieId) {
-        const updatedEvents = events.map((e) => ({ ...e, goalieId: finalGoalieId }));
-        const allEventsStorage = getEvents();
-        const otherEvents = allEventsStorage.filter((e) => e.matchId !== match.id);
-        saveEvents([...otherEvents, ...updatedEvents]);
-        setEvents(updatedEvents);
+    if (finalGoalieId) {
+      const updatedEvents = events.map((e) => ({ ...e, goalieId: finalGoalieId }));
+      for (const event of updatedEvents) {
+        // eslint-disable-next-line no-await-in-loop
+        await dataService.saveEvent(event);
       }
+      const refreshed = await dataService.getEvents(match.id);
+      setEvents(refreshed.filter((e) => e.status !== "deleted"));
+      setAllEvents(refreshed);
     }
 
     setShowGoalieSelect(false);
@@ -500,49 +319,14 @@ export default function MatchPage() {
     
     // If competitionId is empty string, convert to null to allow removal
     const finalCompetitionId = competitionId && competitionId.trim() !== "" ? competitionId : undefined;
-    
-    // Store competitionId in localStorage metadata (works for both UUID and local IDs)
-    // This ensures manual assignment persists even when loading from Supabase
-    if (typeof window !== 'undefined') {
-      try {
-        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-        if (finalCompetitionId) {
-          metadata[match.id] = { manuallySet: true, competitionId: finalCompetitionId };
-        } else {
-          // Remove assignment - delete metadata
-          delete metadata[match.id];
-        }
-        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
-      } catch (err) {
-        console.error('[MatchPage] Failed to save competition metadata:', err);
-      }
-    }
-    
-    if (dataSource === "supabase") {
-      // Try to update in Supabase (only if competitionId is UUID)
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(finalCompetitionId || '');
-      if (isUuid && finalCompetitionId) {
-        const updated = await updateMatchSupabase(match.id, { 
-          competition_id: finalCompetitionId,
-        });
-        if (updated) {
-          setMatch({ ...updated, competitionId: finalCompetitionId, competitionIdManuallySet: true });
-        }
-      } else {
-        // Not a UUID - just update local state and metadata (already saved above)
-        setMatch({ ...match, competitionId: finalCompetitionId, competitionIdManuallySet: true });
-      }
-    } else {
-      // Update in localStorage
-      const updatedMatch = { 
-        ...match, 
-        competitionId: finalCompetitionId,
-        competitionIdManuallySet: true,
-      };
-      saveMatchLocal(updatedMatch);
-      setMatch(updatedMatch);
-    }
 
+    const updatedMatch = {
+      ...match,
+      competitionId: finalCompetitionId,
+      competitionIdManuallySet: true,
+    };
+    const saved = await dataService.saveMatch(updatedMatch);
+    setMatch(saved);
     setShowCompetitionSelect(false);
   };
 
@@ -550,33 +334,27 @@ export default function MatchPage() {
     if (events.length === 0 || isMatchClosed) return;
     if (!confirm("Smazat poslední událost?")) return;
 
-    const allEventsStorage = getEvents();
     const lastEvent = events[events.length - 1];
-    const filtered = allEventsStorage.filter((e) => e.id !== lastEvent.id);
-    saveEvents(filtered);
-    setEvents(events.slice(0, -1));
-    setAllEvents((prev) => prev.filter((e) => e.id !== lastEvent.id));
+    dataService.deleteEvent(lastEvent.id).then(async () => {
+      if (!match) return;
+      const refreshed = await dataService.getEvents(match.id);
+      setEvents(refreshed.filter((e) => e.status !== "deleted"));
+      setAllEvents(refreshed);
+    });
   };
 
   const toggleMatchStatus = async () => {
     if (!match) return;
     const newStatus: MatchStatus = isMatchCompleted(match.status) ? "in_progress" : "completed";
-    
-    if (dataSource === "supabase") {
-      const updated = await updateMatchSupabase(match.id, { status: newStatus });
-      if (updated) {
-        setMatch(updated);
-      }
-    } else {
-      const updatedMatch: Match = {
-        ...match,
-        status: newStatus,
-        completed: newStatus === "completed",
-        updatedAt: new Date().toISOString(),
-      };
-      saveMatchLocal(updatedMatch);
-      setMatch(updatedMatch);
-    }
+
+    const updatedMatch: Match = {
+      ...match,
+      status: newStatus,
+      completed: newStatus === "completed",
+      updatedAt: new Date().toISOString(),
+    };
+    const saved = await dataService.saveMatch(updatedMatch);
+    setMatch(saved);
   };
 
   if (!match) {
@@ -834,26 +612,12 @@ export default function MatchPage() {
         open={showEventList}
         onClose={() => setShowEventList(false)}
         events={allEvents}
-        dataSource={dataSource}
-        matchId={match?.id}
         onEventsChange={async () => {
           if (!match) return;
-          
-          if (dataSource === "supabase") {
-            const supabaseEvents = await getEventsForMatchSupabase(match.id);
-            setEvents(supabaseEvents);
-            setAllEvents(supabaseEvents);
-          } else {
-            // Force reload from storage to ensure we get the latest data
-            const reloadedEvents = getEventsByMatchLocal(match.id);
-            const reloadedAllEvents = getAllEventsByMatch(match.id);
-            console.log('[MatchPage] Events changed, reloaded:', {
-              eventsCount: reloadedEvents.length,
-              allEventsCount: reloadedAllEvents.length,
-            });
-            setEvents(reloadedEvents);
-            setAllEvents(reloadedAllEvents);
-          }
+
+          const refreshed = await dataService.getEvents(match.id);
+          setEvents(refreshed.filter((e) => e.status !== "deleted"));
+          setAllEvents(refreshed);
         }}
         matchClosed={isMatchClosed}
         goalieCatchHand={goalie?.catchHand || "L"}
@@ -882,24 +646,17 @@ export default function MatchPage() {
               status: "confirmed",
               createdAt: now,
             };
-            
-            saveEventLocal(newEvent);
-            
-            // Re-read from storage to ensure consistency
-            const updatedEvents = getEventsByMatchLocal(match.id);
-            const updatedAllEvents = getAllEventsByMatch(match.id);
-            console.log('[MatchPage] Saved event from landscape, reloaded:', {
-              eventId: newEvent.id,
-              updatedEventsCount: updatedEvents.length,
-              updatedAllEventsCount: updatedAllEvents.length,
+
+            dataService.saveEvent(newEvent).then(async () => {
+              const refreshed = await dataService.getEvents(match.id);
+              setEvents(refreshed.filter((e) => e.status !== "deleted"));
+              setAllEvents(refreshed);
+
+              syncNow().catch(err => {
+                console.error('[MatchPage] Background sync failed:', err);
+              });
             });
-            setEvents(updatedEvents);
-            setAllEvents(updatedAllEvents);
-            
-            // Trigger sync to Supabase (background)
-            syncNow().catch(err => {
-              console.error('[MatchPage] Background sync failed:', err);
-            });
+            setCurrentSituation(situation);
           }}
           onClose={() => setShowLandscapeMode(false)}
         />
@@ -1258,19 +1015,9 @@ export default function MatchPage() {
                       completed: true,
                       datetime: todayISO, // Move to today
                     };
-                    
-                    if (dataSource === "supabase") {
-                      const updated = await updateMatchSupabase(match.id, {
-                        status: "completed",
-                        datetime: todayISO,
-                      });
-                      if (updated) {
-                        setMatch(updated);
-                      }
-                    } else {
-                      saveMatchLocal(updatedMatch);
-                      setMatch(updatedMatch);
-                    }
+
+                    const saved = await dataService.saveMatch(updatedMatch);
+                    setMatch(saved);
                     
                     // Trigger sync to Supabase (background)
                     syncNow().catch(err => {
@@ -1312,19 +1059,9 @@ export default function MatchPage() {
                     completed: false,
                     datetime: originalDatetime, // Always restore original datetime
                   };
-                  
-                  if (dataSource === "supabase") {
-                    const updated = await updateMatchSupabase(match.id, {
-                      status: newStatus,
-                      datetime: originalDatetime,
-                    });
-                    if (updated) {
-                      setMatch(updated);
-                    }
-                  } else {
-                    saveMatchLocal(updatedMatch);
-                    setMatch(updatedMatch);
-                  }
+
+                  const saved = await dataService.saveMatch(updatedMatch);
+                  setMatch(saved);
                   
                   // Trigger sync to Supabase (background)
                   syncNow().catch(err => {
@@ -1362,68 +1099,37 @@ export default function MatchPage() {
           const zone =
             pendingZone ?? getZoneFromCoords(pendingCoords.x, pendingCoords.y);
 
-          if (dataSource === "supabase") {
-            // Create event in Supabase
-            const periodStr = period === "OT" ? "OT" : String(period) as "1" | "2" | "3";
-            const createdEvent = await createEventSupabase({
-              match_id: match.id,
-              goalie_id: goalie?.id,
-              period: periodStr,
-              game_time: gameTime,
-              result,
-              shot_x: pendingCoords.x,
-              shot_y: pendingCoords.y,
-              input_source: "live",
-            });
-            
-            if (createdEvent) {
-              setEvents((prev) => [...prev, createdEvent]);
-              setAllEvents((prev) => [...prev, createdEvent]);
-            } else {
-              console.error("[MatchPage] Failed to create event in Supabase");
-            }
-          } else {
-            // Create event in localStorage
-            const newEvent: GoalieEvent = {
-              id: generateEventId(),
-              matchId: match.id,
-              goalieId: goalie?.id || "",
-              period,
-              gameTime,
-              timestamp: now,
-              result,
-              shotPosition: {
-                x: pendingCoords.x,
-                y: pendingCoords.y,
-                zone,
-              },
-              goalPosition,
-              saveType,
-              goalType,
-              situation,
-              inputSource: "live",
-              status: "confirmed",
-              createdAt: now,
-            };
-            
-            saveEventLocal(newEvent);
-            
-            // Re-read from storage to ensure consistency
-            const updatedEvents = getEventsByMatchLocal(match.id);
-            const updatedAllEvents = getAllEventsByMatch(match.id);
-            console.log('[MatchPage] Saved event from modal, reloaded:', {
-              eventId: newEvent.id,
-              updatedEventsCount: updatedEvents.length,
-              updatedAllEventsCount: updatedAllEvents.length,
-            });
-            setEvents(updatedEvents);
-            setAllEvents(updatedAllEvents);
-            
-            // Trigger sync to Supabase (background)
-            syncNow().catch(err => {
-              console.error('[MatchPage] Background sync failed:', err);
-            });
-          }
+          const newEvent: GoalieEvent = {
+            id: generateEventId(),
+            matchId: match.id,
+            goalieId: goalie?.id || "",
+            period,
+            gameTime,
+            timestamp: now,
+            result,
+            shotPosition: {
+              x: pendingCoords.x,
+              y: pendingCoords.y,
+              zone,
+            },
+            goalPosition,
+            saveType,
+            goalType,
+            situation,
+            inputSource: "live",
+            status: "confirmed",
+            createdAt: now,
+          };
+
+          await dataService.saveEvent(newEvent);
+          const refreshed = await dataService.getEvents(match.id);
+          setEvents(refreshed.filter((e) => e.status !== "deleted"));
+          setAllEvents(refreshed);
+          setCurrentSituation(situation);
+
+          syncNow().catch(err => {
+            console.error('[MatchPage] Background sync failed:', err);
+          });
           
           setModalOpen(false);
           setPendingCoords(null);

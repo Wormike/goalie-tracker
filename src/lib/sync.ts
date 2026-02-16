@@ -305,6 +305,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     // 4. Upload Matches
     const matches = storage.getMatches();
     const matchIdMap = new Map<string, string>(); // old ID -> new UUID
+    const existingMatchIds = new Set<string>(); // Set of all match IDs that exist in Supabase
 
     if (matches.length > 0) {
       // First, fetch all existing matches from Supabase to match by external_id or key
@@ -317,6 +318,8 @@ export async function uploadToSupabase(): Promise<SyncResult> {
       const existingByKey = new Map<string, string>();
       if (existingMatches) {
         existingMatches.forEach((m) => {
+          // Track all existing match IDs in Supabase
+          existingMatchIds.add(m.id);
           // Map by external_id (most reliable for imported matches)
           if (m.external_id) {
             existingByExternalId.set(m.external_id, m.id);
@@ -405,14 +408,20 @@ export async function uploadToSupabase(): Promise<SyncResult> {
       const eventsPayload = events
         .filter((e) => e.status !== "deleted")
         .map((e) => {
-          // Get mapped match ID - if match was synchronized, use mapped UUID, otherwise check if original is UUID
+          // Get mapped match ID - if match was synchronized, use mapped UUID
           let matchId = matchIdMap.get(e.matchId);
           if (!matchId) {
-            // Match not in map - check if original matchId is valid UUID (exists in Supabase)
-            if (isValidUuid(e.matchId)) {
+            // Match not in map - check if original matchId is valid UUID AND exists in Supabase
+            if (isValidUuid(e.matchId) && existingMatchIds.has(e.matchId)) {
               matchId = e.matchId; // Match exists in Supabase with this UUID
             } else {
-              // Match has local ID (not in Supabase) - skip this event
+              // Match has local ID (not in Supabase) or UUID doesn't exist in Supabase - skip this event
+              return null;
+            }
+          } else {
+            // Verify that mapped match ID actually exists in Supabase
+            if (!existingMatchIds.has(matchId)) {
+              // Mapped match ID doesn't exist in Supabase - skip this event
               return null;
             }
           }
@@ -557,7 +566,7 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
     // 2. Download Matches
     const { data: matchesData, error: matchesError } = await supabase
       .from("matches")
-      .select("*");
+      .select("*, competition:competitions(category, name)");
 
     if (matchesError) {
       result.errors.push(`Matches: ${matchesError.message}`);
@@ -576,7 +585,7 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           homeTeamName: m.home_team_name || undefined,
           awayTeamId: m.away_team_id || undefined,
           awayTeamName: m.away_team_name || undefined,
-          category: m.competition_id || "", // Legacy field
+          category: m.competition?.category || m.competition?.name || "", // Legacy field
           matchType: (m.match_type || m.type || "friendly") as MatchType,
           competitionId: m.competition_id || undefined,
           seasonId: m.season_id || m.season || "",

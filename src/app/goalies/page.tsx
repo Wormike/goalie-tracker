@@ -4,10 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Goalie, GoalieEvent, Match } from "@/lib/types";
-import { getGoalies, saveGoalie, deleteGoalie, getMatches, getEvents, calculateGoalieStats } from "@/lib/storage";
-import { getAllEvents } from "@/lib/repositories/events";
-import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { dataService } from "@/lib/dataService";
 import { useAutoSync } from "@/hooks/useAutoSync";
 
 export default function GoaliesPage() {
@@ -27,37 +24,24 @@ export default function GoaliesPage() {
   });
 
   useEffect(() => {
-    setGoalies(getGoalies());
-    
-    // Load matches and events from Supabase if configured, otherwise from localStorage
     const loadData = async () => {
-      if (isSupabaseConfigured()) {
-        try {
-          const [events, matches] = await Promise.all([
-            getAllEvents(),
-            getMatchesSupabase(),
-          ]);
-          setAllEvents(events);
-          setAllMatches(matches);
-        } catch (err) {
-          console.error("[GoaliesPage] Failed to load data from Supabase:", err);
-          // Fallback to localStorage
-          setAllEvents(getEvents());
-          setAllMatches(getMatches());
-        }
-      } else {
-        setAllEvents(getEvents());
-        setAllMatches(getMatches());
-      }
+      const [goaliesData, events, matches] = await Promise.all([
+        dataService.getGoalies(),
+        dataService.getEvents(),
+        dataService.getMatches(),
+      ]);
+      setGoalies(goaliesData);
+      setAllEvents(events);
+      setAllMatches(matches);
     };
-    
     loadData();
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const goalieId = editingGoalie?.id || crypto.randomUUID();
     const goalie: Goalie = {
-      id: editingGoalie?.id || `goalie-${Date.now()}`,
+      id: goalieId,
       firstName: form.firstName,
       lastName: form.lastName,
       birthYear: form.birthYear,
@@ -65,8 +49,8 @@ export default function GoaliesPage() {
       jerseyNumber: form.jerseyNumber ? parseInt(form.jerseyNumber) : undefined,
       createdAt: editingGoalie?.createdAt || new Date().toISOString(),
     };
-    saveGoalie(goalie);
-    setGoalies(getGoalies());
+    await dataService.saveGoalie(goalie);
+    setGoalies(await dataService.getGoalies());
     resetForm();
     
     // Trigger sync to Supabase (background)
@@ -99,10 +83,10 @@ export default function GoaliesPage() {
     setShowForm(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm("Opravdu smazat tohoto brankáře?")) {
-      deleteGoalie(id);
-      setGoalies(getGoalies());
+      await dataService.deleteGoalie(id);
+      setGoalies(await dataService.getGoalies());
       
       // Trigger sync to Supabase (background)
       syncNow().catch(err => {
@@ -209,6 +193,7 @@ export default function GoaliesPage() {
           <div className="space-y-3">
             {goalies.map((goalie) => {
               const stats = calculateGoalieStats(goalie.id, undefined, undefined, allEvents, allMatches);
+              const gaa = stats.gamesPlayed > 0 ? stats.totalGoals / stats.gamesPlayed : 0;
               return (
                 <div
                   key={goalie.id}
@@ -244,7 +229,7 @@ export default function GoaliesPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs">
+                  <div className="mt-3 grid grid-cols-6 gap-2 text-center text-xs">
                     <div>
                       <div className="font-bold text-slate-50">{stats.gamesPlayed}</div>
                       <div className="text-slate-500">Zápasů</div>
@@ -262,6 +247,16 @@ export default function GoaliesPage() {
                         {stats.savePercentage.toFixed(1).replace(".", ",")}%
                       </div>
                       <div className="text-slate-500">Úsp.</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-50">{stats.shutouts}</div>
+                      <div className="text-slate-500">SO</div>
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-50">
+                        {gaa.toFixed(2).replace(".", ",")}
+                      </div>
+                      <div className="text-slate-500">GAA</div>
                     </div>
                   </div>
 

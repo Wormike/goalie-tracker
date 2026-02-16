@@ -15,16 +15,12 @@ let syncCallbacks: Array<(result: SyncResult) => void> = [];
  */
 export function startAutoSync(): void {
   if (syncInterval) {
-    console.log('[AutoSync] Already running');
     return;
   }
 
   if (!isSupabaseConfigured()) {
-    console.log('[AutoSync] Supabase not configured, skipping');
     return;
   }
-
-  console.log('[AutoSync] Starting automatic sync (every 60s)');
   
   // Sync immediately on start
   performSync();
@@ -42,7 +38,6 @@ export function stopAutoSync(): void {
   if (syncInterval) {
     clearInterval(syncInterval);
     syncInterval = null;
-    console.log('[AutoSync] Stopped');
   }
 }
 
@@ -51,7 +46,6 @@ export function stopAutoSync(): void {
  */
 async function performSync(): Promise<SyncResult> {
   if (isSyncing) {
-    console.log('[AutoSync] Sync already in progress, skipping');
     return {
       success: false,
       uploaded: { goalies: 0, matches: 0, events: 0, competitions: 0, teams: 0 },
@@ -82,13 +76,7 @@ async function performSync(): Promise<SyncResult> {
       }
     });
 
-    if (result.success) {
-      console.log('[AutoSync] Sync successful:', {
-        goalies: result.uploaded.goalies,
-        matches: result.uploaded.matches,
-        events: result.uploaded.events,
-      });
-    } else {
+    if (!result.success) {
       console.warn('[AutoSync] Sync completed with errors:', result.errors);
     }
 
@@ -138,6 +126,8 @@ export function onSync(callback: (result: SyncResult) => void): () => void {
     syncCallbacks = syncCallbacks.filter(cb => cb !== callback);
   };
 }
+
+
 
 
 

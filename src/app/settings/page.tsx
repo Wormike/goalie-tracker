@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ExportImportModal } from "@/components/ExportImportModal";
 import { StandingsLink } from "@/components/StandingsLink";
-import { useCompetition, UserCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 import {
   getStorageStats,
   getSeasons,
@@ -18,6 +18,7 @@ import {
   generateSeasonLabel,
 } from "@/lib/storage";
 import { getSyncStatus, uploadToSupabase, downloadFromSupabase, SyncStatus, SyncResult } from "@/lib/sync";
+import { useToast } from "@/contexts/ToastContext";
 import type { Season, Team, Competition } from "@/lib/types";
 
 interface SeasonModalProps {
@@ -162,6 +163,7 @@ function SupabaseSyncSection({ onDataChange }: { onDataChange: () => void }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
+  const { addToast } = useToast();
 
   const loadStatus = async () => {
     const status = await getSyncStatus();
@@ -181,6 +183,9 @@ function SupabaseSyncSection({ onDataChange }: { onDataChange: () => void }) {
       await loadStatus();
       if (res.success) {
         onDataChange();
+        addToast("Data nahrána do cloudu", "success");
+      } else {
+        addToast(res.errors[0] || "Nahrání do cloudu selhalo", "error");
       }
     } finally {
       setLoading(false);
@@ -196,6 +201,9 @@ function SupabaseSyncSection({ onDataChange }: { onDataChange: () => void }) {
       await loadStatus();
       if (res.success) {
         onDataChange();
+        addToast("Data stažena z cloudu", "success");
+      } else {
+        addToast(res.errors[0] || "Stažení z cloudu selhalo", "error");
       }
     } finally {
       setLoading(false);
@@ -318,7 +326,7 @@ interface UserCompetitionModalProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: { name: string; standingsUrl?: string }) => void;
-  editingCompetition?: UserCompetition | null;
+  editingCompetition?: Competition | null;
 }
 
 function UserCompetitionModal({ 
@@ -449,15 +457,15 @@ export default function SettingsPage() {
     updateCompetition: updateUserCompetition,
     deleteCompetition: deleteUserCompetition,
     setActiveCompetitionId,
-  } = useCompetition();
+  } = useCompetitions();
 
   const [showExportImport, setShowExportImport] = useState(false);
   const [showSeasonModal, setShowSeasonModal] = useState(false);
   const [showUserCompModal, setShowUserCompModal] = useState(false);
   const [editingSeason, setEditingSeason] = useState<Season | null>(null);
-  const [editingUserComp, setEditingUserComp] = useState<UserCompetition | null>(null);
+  const [editingUserComp, setEditingUserComp] = useState<Competition | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Season | null>(null);
-  const [deleteUserCompConfirm, setDeleteUserCompConfirm] = useState<UserCompetition | null>(null);
+  const [deleteUserCompConfirm, setDeleteUserCompConfirm] = useState<Competition | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [stats, setStats] = useState({
     goalies: 0,
@@ -520,26 +528,32 @@ export default function SettingsPage() {
   const sortedSeasons = [...seasons].sort((a, b) => b.startYear - a.startYear);
 
   // Handlers for user competitions
-  const handleSaveUserComp = (data: { name: string; standingsUrl?: string }) => {
+  const handleSaveUserComp = async (data: { name: string; standingsUrl?: string }) => {
     if (editingUserComp) {
-      updateUserCompetition(editingUserComp.id, data);
+      await updateUserCompetition(editingUserComp.id, data);
     } else {
-      addUserCompetition(data);
+      await addUserCompetition({
+        name: data.name,
+        standingsUrl: data.standingsUrl,
+        category: "",
+        seasonId: currentSeasonState?.id || "",
+        source: "manual",
+      });
     }
   };
 
-  const handleEditUserComp = (comp: UserCompetition) => {
+  const handleEditUserComp = (comp: Competition) => {
     setEditingUserComp(comp);
     setShowUserCompModal(true);
   };
 
-  const handleDeleteUserComp = (comp: UserCompetition) => {
+  const handleDeleteUserComp = (comp: Competition) => {
     setDeleteUserCompConfirm(comp);
   };
 
-  const confirmDeleteUserComp = () => {
+  const confirmDeleteUserComp = async () => {
     if (!deleteUserCompConfirm) return;
-    deleteUserCompetition(deleteUserCompConfirm.id);
+    await deleteUserCompetition(deleteUserCompConfirm.id);
     setDeleteUserCompConfirm(null);
   };
 
@@ -654,7 +668,7 @@ export default function SettingsPage() {
                         </div>
                       )}
                       <div className="mt-1 text-xs text-slate-500">
-                        Vytvořeno: {new Date(comp.createdAt).toLocaleDateString("cs-CZ")}
+                        Vytvořeno: {new Date(comp.createdAt || Date.now()).toLocaleDateString("cs-CZ")}
                       </div>
                     </div>
                     <div className="flex gap-1">

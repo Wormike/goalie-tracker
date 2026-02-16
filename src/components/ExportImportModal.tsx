@@ -8,6 +8,7 @@ import {
   clearAllData,
   type ImportResult,
 } from "@/lib/storage";
+import { dataService } from "@/lib/dataService";
 import type { ExportBundle } from "@/lib/types";
 
 interface ExportImportModalProps {
@@ -129,13 +130,19 @@ export function ExportImportModal({
     reader.readAsText(file);
   };
 
-  const handleImport = () => {
+  const handleImport = async () => {
     if (!importBundle) return;
 
     const result = importData(importBundle, importMode);
     setImportResult(result);
 
     if (result.success) {
+      if (importBundle.competitions?.length) {
+        for (const competition of importBundle.competitions) {
+          // eslint-disable-next-line no-await-in-loop
+          await dataService.saveCompetition(competition);
+        }
+      }
       setImportBundle(null);
       setImportPreview(null);
       onDataChange?.();

@@ -4,19 +4,21 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import type { Goalie, Season, Competition, GoalieEvent } from "@/lib/types";
 import {
-  getGoalies,
   getSeasons,
-  getCompetitions,
-  getMatches,
-  getEvents,
   calculateGoalieStats,
 } from "@/lib/storage";
-import { getAllEvents } from "@/lib/repositories/events";
-import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { dataService } from "@/lib/dataService";
 import type { Match } from "@/lib/types";
 
-type SortKey = "name" | "games" | "shots" | "saves" | "goals" | "savePercentage";
+type SortKey =
+  | "name"
+  | "games"
+  | "shots"
+  | "saves"
+  | "goals"
+  | "savePercentage"
+  | "shutouts"
+  | "gaa";
 type SortOrder = "asc" | "desc";
 
 export default function StatsPage() {
@@ -32,32 +34,19 @@ export default function StatsPage() {
   const [allMatches, setAllMatches] = useState<Match[]>([]);
 
   useEffect(() => {
-    setGoalies(getGoalies());
-    setSeasons(getSeasons());
-    setCompetitions(getCompetitions());
-    
-    // Load matches and events from Supabase if configured, otherwise from localStorage
     const loadData = async () => {
-      if (isSupabaseConfigured()) {
-        try {
-          const [events, matches] = await Promise.all([
-            getAllEvents(),
-            getMatchesSupabase(),
-          ]);
-          setAllEvents(events);
-          setAllMatches(matches);
-        } catch (err) {
-          console.error("[StatsPage] Failed to load data from Supabase:", err);
-          // Fallback to localStorage
-          setAllEvents(getEvents());
-          setAllMatches(getMatches());
-        }
-      } else {
-        setAllEvents(getEvents());
-        setAllMatches(getMatches());
-      }
+      const [goaliesData, competitionsData, events, matches] = await Promise.all([
+        dataService.getGoalies(),
+        dataService.getCompetitions(),
+        dataService.getEvents(),
+        dataService.getMatches(),
+      ]);
+      setGoalies(goaliesData);
+      setCompetitions(competitionsData);
+      setAllEvents(events);
+      setAllMatches(matches);
+      setSeasons(getSeasons());
     };
-    
     loadData();
   }, []);
 
@@ -111,6 +100,14 @@ export default function StatsPage() {
         case "savePercentage":
           aVal = a.stats.savePercentage;
           bVal = b.stats.savePercentage;
+          break;
+        case "shutouts":
+          aVal = a.stats.shutouts;
+          bVal = b.stats.shutouts;
+          break;
+        case "gaa":
+          aVal = a.stats.gamesPlayed > 0 ? a.stats.totalGoals / a.stats.gamesPlayed : 0;
+          bVal = b.stats.gamesPlayed > 0 ? b.stats.totalGoals / b.stats.gamesPlayed : 0;
           break;
         default:
           aVal = a.stats.savePercentage;
@@ -292,6 +289,18 @@ export default function StatsPage() {
                   >
                     %{getSortIndicator("savePercentage") && <span className="ml-1">{getSortIndicator("savePercentage")}</span>}
                   </th>
+                  <th
+                    className="cursor-pointer p-3 text-center font-medium"
+                    onClick={() => handleSort("shutouts")}
+                  >
+                    SO{getSortIndicator("shutouts") && <span className="ml-1">{getSortIndicator("shutouts")}</span>}
+                  </th>
+                  <th
+                    className="cursor-pointer p-3 text-center font-medium"
+                    onClick={() => handleSort("gaa")}
+                  >
+                    GAA{getSortIndicator("gaa") && <span className="ml-1">{getSortIndicator("gaa")}</span>}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -337,6 +346,14 @@ export default function StatsPage() {
                     <td className="p-3 text-center font-semibold text-accentPrimary">
                       {stats.gamesPlayed > 0
                         ? stats.savePercentage.toFixed(1)
+                        : "-"}
+                    </td>
+                    <td className="p-3 text-center text-slate-300">
+                      {stats.shutouts}
+                    </td>
+                    <td className="p-3 text-center text-slate-300">
+                      {stats.gamesPlayed > 0
+                        ? (stats.totalGoals / stats.gamesPlayed).toFixed(2)
                         : "-"}
                     </td>
                   </tr>

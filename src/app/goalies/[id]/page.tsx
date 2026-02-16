@@ -4,15 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import type { Goalie, GoalieEvent, Match, Season } from "@/lib/types";
 import {
-  getGoalieById,
-  getMatches as getMatchesLocal,
-  getEvents,
   getSeasons,
   calculateGoalieStats,
 } from "@/lib/storage";
-import { getEventsForGoalie } from "@/lib/repositories/events";
-import { getMatches as getMatchesSupabase } from "@/lib/repositories/matches";
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { dataService } from "@/lib/dataService";
 import { ShotHeatmap } from "@/components/ShotHeatmap";
 import { GoalHeatmap } from "@/components/GoalView";
 import { Select } from "@/components/ui/Select";
@@ -32,7 +27,8 @@ export default function GoalieDetailPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      const g = getGoalieById(params.id);
+      const allGoalies = await dataService.getGoalies();
+      const g = allGoalies.find((goalie) => goalie.id === params.id);
       if (!g) {
         setLoading(false);
         return;
@@ -40,36 +36,13 @@ export default function GoalieDetailPage() {
       
       setGoalie(g);
       
-      // Load matches from Supabase if configured, otherwise from localStorage
-      let allMatches: Match[] = [];
-      if (isSupabaseConfigured()) {
-        try {
-          const supabaseMatches = await getMatchesSupabase();
-          allMatches = supabaseMatches.filter((m) => m.goalieId === params.id);
-        } catch (err) {
-          console.error("[GoalieDetailPage] Failed to load matches from Supabase:", err);
-          // Fallback to localStorage
-          allMatches = getMatchesLocal().filter((m) => m.goalieId === params.id);
-        }
-      } else {
-        allMatches = getMatchesLocal().filter((m) => m.goalieId === params.id);
-      }
+      const allMatches = (await dataService.getMatches()).filter((m) => m.goalieId === params.id);
       setMatches(allMatches);
       setSeasons(getSeasons());
       
-      // Load events from Supabase if configured, otherwise from localStorage
-      let allEvents: GoalieEvent[] = [];
-      if (isSupabaseConfigured()) {
-        try {
-          allEvents = await getEventsForGoalie(params.id);
-        } catch (err) {
-          console.error("[GoalieDetailPage] Failed to load events from Supabase:", err);
-          // Fallback to localStorage
-          allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
-        }
-      } else {
-        allEvents = getEvents().filter((e) => e.goalieId === params.id && e.status !== "deleted");
-      }
+      const allEvents = (await dataService.getEvents()).filter(
+        (e) => e.goalieId === params.id && e.status !== "deleted"
+      );
       
       setEvents(allEvents);
       setLoading(false);
@@ -96,6 +69,7 @@ export default function GoalieDetailPage() {
     events, // Pass loaded events (from Supabase or localStorage)
     matches // Pass loaded matches (from Supabase or localStorage)
   );
+  const gaa = stats.gamesPlayed > 0 ? stats.totalGoals / stats.gamesPlayed : 0;
 
   // Filter matches by season
   const filteredMatches =
@@ -281,7 +255,7 @@ export default function GoalieDetailPage() {
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-3 text-center">
+              <div className="mt-3 grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-xl bg-bgSurfaceSoft p-3">
                   <div className="text-xl font-bold text-slate-50">
                     {stats.totalShots}
@@ -293,6 +267,12 @@ export default function GoalieDetailPage() {
                     {stats.shutouts}
                   </div>
                   <div className="text-xs text-slate-400">Čistá konta</div>
+                </div>
+                <div className="rounded-xl bg-bgSurfaceSoft p-3">
+                  <div className="text-xl font-bold text-slate-50">
+                    {gaa.toFixed(2).replace(".", ",")}
+                  </div>
+                  <div className="text-xs text-slate-400">GAA</div>
                 </div>
               </div>
             </div>

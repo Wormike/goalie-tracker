@@ -16,7 +16,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { createMatch as createMatchSupabase } from "@/lib/repositories/matches";
 import { Select } from "@/components/ui/Select";
-import { useCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 interface ImportWizardProps {
@@ -63,7 +63,7 @@ function mapCategoryToCompetitionName(categoryName: string): string {
 }
 
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
-  const { addCompetition, competitions: userCompetitions, setActiveCompetitionId } = useCompetition();
+  const { addCompetition, competitions: userCompetitions, setActiveCompetitionId } = useCompetitions();
   const [step, setStep] = useState<Step>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,16 +153,22 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         
         // If not found, create new competition automatically
         if (!existingCompetition) {
-          existingCompetition = addCompetition({
+          existingCompetition = await addCompetition({
             name: competitionName,
-            category: categoryName, // Store original category for matching
+            category: categoryName,
+            seasonId: selectedPreset.season,
             standingsUrl: selectedPreset.standingsUrl,
+            source: "manual",
           });
-          setAutoCreatedCompetition(existingCompetition.id);
+          if (existingCompetition) {
+            setAutoCreatedCompetition(existingCompetition.id);
+          }
         }
         
         // Set the competition mapping
-        setMappings((m) => ({ ...m, competitionId: existingCompetition!.id }));
+        if (existingCompetition) {
+          setMappings((m) => ({ ...m, competitionId: existingCompetition.id }));
+        }
         
         // Pre-select all upcoming matches
         const upcomingIds = new Set<string>(

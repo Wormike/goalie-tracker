@@ -99,21 +99,22 @@ CREATE TABLE IF NOT EXISTS matches (
   
   -- Týmy
   home_team_id UUID REFERENCES teams(id),
+  away_team_id UUID REFERENCES teams(id),
   home_team_name TEXT,           -- Záloha pokud není v teams
   away_team_name TEXT NOT NULL,
   
   -- Klasifikace
-  type TEXT DEFAULT 'friendly' CHECK (type IN ('friendly', 'league', 'tournament', 'cup')),
+  match_type TEXT DEFAULT 'friendly' CHECK (match_type IN ('friendly', 'league', 'tournament', 'cup')),
   competition TEXT,              -- Název soutěže (legacy)
   competition_id UUID REFERENCES competitions(id),
-  season TEXT,                   -- ID sezóny (legacy string)
+  season_id TEXT,                -- ID sezóny
   
   -- Čas a místo
   datetime TIMESTAMPTZ NOT NULL,
   venue TEXT,
   
   -- Status
-  status TEXT DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
   
   -- Skóre
   home_score INTEGER,
@@ -130,7 +131,7 @@ CREATE TABLE IF NOT EXISTS matches (
   -- Manuální statistiky (když není detailní tracking)
   manual_shots INTEGER,
   manual_saves INTEGER,
-  manual_goals INTEGER,
+  manual_goals_against INTEGER,
   
   -- Timestamps
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -141,6 +142,8 @@ CREATE INDEX IF NOT EXISTS idx_matches_datetime ON matches(datetime DESC);
 CREATE INDEX IF NOT EXISTS idx_matches_goalie ON matches(goalie_id);
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
 CREATE INDEX IF NOT EXISTS idx_matches_external_id ON matches(external_id);
+CREATE INDEX IF NOT EXISTS idx_matches_away_team ON matches(away_team_id);
+CREATE INDEX IF NOT EXISTS idx_matches_season_id ON matches(season_id);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- GOALIE_EVENTS - Události brankáře (střely, zákroky, góly)
@@ -176,7 +179,7 @@ CREATE TABLE IF NOT EXISTS goalie_events (
   -- Detaily
   save_type TEXT CHECK (save_type IN ('catch', 'rebound')),
   goal_type TEXT CHECK (goal_type IN ('direct', 'rebound', 'breakaway')),
-  situation TEXT DEFAULT 'even' CHECK (situation IN ('even', 'powerplay', 'shorthanded')),
+  situation TEXT DEFAULT 'even' CHECK (situation IN ('even', 'pp', 'sh', '4v4', '3v3')),
   is_rebound BOOLEAN DEFAULT FALSE,
   screened_view BOOLEAN DEFAULT FALSE,
   
@@ -315,10 +318,10 @@ SELECT
   m.id,
   m.datetime,
   COALESCE(t.name, m.home_team_name, 'Domácí') AS home_team,
-  m.away_team_name AS away_team,
+  COALESCE(ta.name, m.away_team_name, 'Hosté') AS away_team,
   m.home_score,
   m.away_score,
-  m.type,
+  m.match_type,
   m.status,
   m.venue,
   g.first_name || ' ' || g.last_name AS goalie_name,
@@ -327,6 +330,7 @@ SELECT
   m.created_at
 FROM matches m
 LEFT JOIN teams t ON m.home_team_id = t.id
+LEFT JOIN teams ta ON m.away_team_id = ta.id
 LEFT JOIN goalies g ON m.goalie_id = g.id
 LEFT JOIN competitions c ON m.competition_id = c.id
 ORDER BY m.datetime DESC;
@@ -378,6 +382,8 @@ ON CONFLICT (id) DO NOTHING;
 -- NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 --
 -- ═══════════════════════════════════════════════════════════════════════════
+
+
 
 
 

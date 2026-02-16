@@ -4,17 +4,13 @@ import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { Goalie, Match, MatchType, MatchStatus, Season, Team, Competition } from "@/lib/types";
 import {
-  getGoalies,
   getSeasons,
   getCurrentSeason,
   getTeams,
-  getCompetitions,
-  saveMatch,
   saveTeam,
 } from "@/lib/storage";
+import { dataService } from "@/lib/dataService";
 import { Select, Combobox } from "@/components/ui/Select";
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
-import { createMatch as createMatchSupabase } from "@/lib/repositories/matches";
 
 // Default team name for quick-fill
 const DEFAULT_HOME_TEAM = "HC Slovan Ústí n.L.";
@@ -44,12 +40,18 @@ export default function NewMatchPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    setGoalies(getGoalies());
-    const allSeasons = getSeasons();
-    setSeasons(allSeasons);
-    const allTeams = getTeams();
-    setTeams(allTeams);
-    setCompetitions(getCompetitions());
+    const loadData = async () => {
+      const [goaliesData, competitionsData] = await Promise.all([
+        dataService.getGoalies(),
+        dataService.getCompetitions(),
+      ]);
+      setGoalies(goaliesData);
+      setCompetitions(competitionsData);
+
+      const allSeasons = getSeasons();
+      setSeasons(allSeasons);
+      const allTeams = getTeams();
+      setTeams(allTeams);
     
     // Use getCurrentSeason() for proper current season
     const currentSeason = getCurrentSeason();
@@ -63,13 +65,16 @@ export default function NewMatchPage() {
       t.name.includes("Slovan") || t.shortName?.includes("Slovan")
     );
     
-    setForm((f) => ({
-      ...f,
-      seasonId: currentSeason.id,
-      datetime: now.toISOString().slice(0, 16),
-      homeTeamId: defaultTeam?.id || "",
-      homeTeamName: defaultTeam?.name || DEFAULT_HOME_TEAM,
-    }));
+      setForm((f) => ({
+        ...f,
+        seasonId: currentSeason.id,
+        datetime: now.toISOString().slice(0, 16),
+        homeTeamId: defaultTeam?.id || "",
+        homeTeamName: defaultTeam?.name || DEFAULT_HOME_TEAM,
+      }));
+    };
+
+    loadData();
   }, []);
 
   // Filter competitions by selected season
@@ -154,37 +159,22 @@ export default function NewMatchPage() {
     
     if (!validate()) return;
 
-    const payload = {
-      home_team_id: form.homeTeamId || undefined,
-      away_team_name: form.away,
-      datetime: new Date(form.datetime).toISOString(),
-      competition_id: form.competitionId || undefined,
-      season_id: form.seasonId,
-      venue: form.venue || undefined,
-      match_type: form.matchType as "friendly" | "league" | "tournament" | "playoff" | "cup",
-      status: "in_progress" as MatchStatus,
-      goalie_id: form.goalieId || undefined,
-    };
+    const homeTeamId =
+      form.homeTeamId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(form.homeTeamId)
+        ? form.homeTeamId
+        : undefined;
 
-    if (isSupabaseConfigured()) {
-      const created = await createMatchSupabase(payload);
-      if (created) {
-        router.push(`/match/${created.id}`);
-        return;
-      }
-      // If Supabase fails, fall back to local
-    }
-
-    // Fallback to localStorage for offline / legacy
     const match: Match = {
-      id: `match-${Date.now()}`,
+      id: crypto.randomUUID(),
       home: form.homeTeamName,
       away: form.away,
-      homeTeamId: form.homeTeamId || undefined,
+      homeTeamId,
+      homeTeamName: form.homeTeamName || undefined,
+      awayTeamName: form.away,
       category: form.category || "Přátelský zápas",
       competitionId: form.competitionId || undefined,
-      datetime: payload.datetime,
-      venue: payload.venue,
+      datetime: new Date(form.datetime).toISOString(),
+      venue: form.venue || undefined,
       matchType: form.matchType,
       goalieId: form.goalieId || undefined,
       seasonId: form.seasonId,
@@ -194,8 +184,8 @@ export default function NewMatchPage() {
       createdAt: new Date().toISOString(),
     };
 
-    saveMatch(match);
-    router.push(`/match/${match.id}`);
+    const saved = await dataService.saveMatch(match);
+    router.push(`/match/${saved.id}`);
   };
 
   // Quick fill presets

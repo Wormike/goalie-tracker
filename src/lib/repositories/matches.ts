@@ -5,13 +5,7 @@
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { Match, MatchType, MatchStatus } from "@/lib/types";
 import { normalizeMatchStatus } from "@/lib/utils/matchStatus";
-
-export function isUuid(value?: string | null): boolean {
-  if (!value) return false;
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
-}
+import { isUuid } from "@/lib/utils/uuid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Database types (match Supabase schema)

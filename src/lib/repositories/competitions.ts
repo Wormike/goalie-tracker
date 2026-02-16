@@ -4,7 +4,7 @@
 
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { Competition } from "@/lib/types";
-import { isUuid } from "./matches";
+import { isUuid } from "@/lib/utils/uuid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Database types
@@ -226,6 +226,8 @@ export async function deleteCompetition(id: string): Promise<boolean> {
     return false;
   }
 }
+
+
 
 
 

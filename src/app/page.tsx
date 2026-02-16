@@ -5,39 +5,26 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Match, Goalie } from "@/lib/types";
 import {
-  getMatches as getMatchesLocal,
   getGoalies,
   getGoalieById,
-  saveMatch,
-  deleteMatch as deleteMatchLocal,
   getEventsByMatch as getEventsByMatchLocal,
 } from "@/lib/storage";
-import {
-  getMatches as getMatchesSupabase,
-  deleteMatch as deleteMatchSupabase,
-  updateMatch as updateMatchSupabase,
-} from "@/lib/repositories/matches";
+import { dataService } from "@/lib/dataService";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { ManualStatsModal } from "@/components/ManualStatsModal";
 import { ImportWizard } from "@/components/ImportWizard";
 import { StandingsButton } from "@/components/StandingsLink";
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
-import { useCompetition } from "@/contexts/CompetitionContext";
+import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 export default function HomePage() {
   // User competition context
-  const { activeCompetition, hasCompetitions, competitions: userCompetitions } = useCompetition();
+  const { activeCompetition, competitions: userCompetitions } = useCompetitions();
   const pathname = usePathname();
-  
-  // Debug: Log activeCompetition changes
-  useEffect(() => {
-    console.log(`[HomePage] activeCompetition changed:`, activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null');
-  }, [activeCompetition?.id, activeCompetition?.name]);
   
   const [matches, setMatches] = useState<Match[]>([]);
   const [goalies, setGoalies] = useState<Goalie[]>([]);
-  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
@@ -60,62 +47,7 @@ export default function HomePage() {
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
   const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
 
-  // Helper function to load competition metadata from localStorage
-  // Returns map of matchId -> { manuallySet: boolean, competitionId?: string }
-  const loadCompetitionMetadata = (): Map<string, { manuallySet: boolean; competitionId?: string }> => {
-    if (typeof window === 'undefined') return new Map();
-    try {
-      const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-      const result = new Map<string, { manuallySet: boolean; competitionId?: string }>();
-      
-      // Handle both old format (boolean) and new format (object)
-      for (const [matchId, value] of Object.entries(metadata)) {
-        if (typeof value === 'boolean') {
-          // Old format - migrate to new format
-          result.set(matchId, { manuallySet: value });
-        } else if (typeof value === 'object' && value !== null) {
-          // New format
-          result.set(matchId, value as { manuallySet: boolean; competitionId?: string });
-        }
-      }
-      return result;
-    } catch {
-      return new Map();
-    }
-  };
-
-  // Helper function to load manually set competition flags from metadata (backward compatibility)
-  const loadManuallySetFlags = (): Set<string> => {
-    const metadata = loadCompetitionMetadata();
-    const result = new Set<string>();
-    for (const [matchId, value] of metadata.entries()) {
-      if (value.manuallySet) {
-        result.add(matchId);
-      }
-    }
-    return result;
-  };
-
-  // Helper function to save manually set competition flag
-  const saveManuallySetFlag = (matchId: string, isManuallySet: boolean, competitionId?: string) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const metadata = loadCompetitionMetadata();
-      if (isManuallySet) {
-        metadata.set(matchId, { manuallySet: true, competitionId });
-      } else {
-        metadata.delete(matchId);
-      }
-      // Convert Map back to object for localStorage
-      const metadataObj: Record<string, { manuallySet: boolean; competitionId?: string }> = {};
-      for (const [id, value] of metadata.entries()) {
-        metadataObj[id] = value;
-      }
-      localStorage.setItem('match-competition-metadata', JSON.stringify(metadataObj));
-    } catch (err) {
-      console.error('[HomePage] Failed to save competition metadata:', err);
-    }
-  };
+  // Competition assignment is stored directly on match.competitionId
 
   // Helper function to get category abbreviation (e.g. "Starší žáci B" -> "SŽB")
   const getCategoryAbbreviation = (categoryOrCompetitionName: string): string => {
@@ -155,243 +87,26 @@ export default function HomePage() {
     return abbreviation || categoryOrCompetitionName.substring(0, 3).toUpperCase();
   };
 
-  // Helper function to check if a match category matches a competition
-  const matchCategoryToCompetition = (matchCategory: string, competition: { name: string; category?: string }): boolean => {
-    if (!matchCategory || matchCategory.trim() === "") return false;
-    
-        // Normalize strings for comparison
-    const categoryNormalized = matchCategory.toLowerCase().trim()
-          .replace(/["']/g, "")
-          .replace(/\s+/g, " ")
-          .replace(/\s+sk\./g, " sk")
-          .replace(/\s+sk/g, " sk");
-        
-    const compNameNormalized = competition.name.toLowerCase().trim()
-          .replace(/["']/g, "")
-          .replace(/\s+/g, " ");
-        
-    // Match by category field if available (most reliable)
-    if (competition.category) {
-      const compCategoryNormalized = competition.category.toLowerCase().trim();
-      if (categoryNormalized === compCategoryNormalized) {
-        return true;
-      }
-    }
-
-        // Extract key words
-        const categoryWords = categoryNormalized
-          .replace(/liga\s*/g, "")
-          .replace(/starších|starší/g, "starsi")
-          .replace(/mladších|mladší/g, "mladsi")
-          .replace(/žáků|žák/g, "zaci")
-          .replace(/sk\.?\s*\d+/g, "")
-          .trim()
-          .split(/\s+/)
-          .filter(w => w && w.length > 1);
-        
-        const compNameWords = compNameNormalized
-          .replace(/starší/g, "starsi")
-          .replace(/mladší/g, "mladsi")
-          .replace(/žák/g, "zaci")
-          .trim()
-          .split(/\s+/)
-          .filter(w => w && w.length > 1);
-        
-        // Match if all key words from competition name are in category, or vice versa
-        const allCompWordsInCategory = compNameWords.length > 0 && 
-          compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
-        const allCategoryWordsInComp = categoryWords.length > 0 &&
-          categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-        
-        // Direct substring match
-        const directMatch = categoryNormalized.includes(compNameNormalized) ||
-                           compNameNormalized.includes(categoryNormalized) ||
-                           categoryNormalized === compNameNormalized;
-        
-    return directMatch || allCompWordsInCategory || allCategoryWordsInComp;
-  };
-
-  // Helper function to assign competitionId to matches based on category matching
-  // This assigns matches to ALL available competitions, not just activeCompetition
-  const assignCompetitionIds = (matches: Match[]): Match[] => {
-    if (userCompetitions.length === 0) return matches;
-    
-    // Load manually set flags
-    const manuallySetMatchIds = loadManuallySetFlags();
-    
-    return matches.map(m => {
-      // If match has manually set competitionId, never overwrite it
-      const isManuallySet = manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet;
-      if (isManuallySet && m.competitionId) {
-        return { ...m, competitionIdManuallySet: true };
-      }
-      
-      // If match already has competitionId (but not manually set), verify it still matches
-      if (m.competitionId && !isManuallySet) {
-        const existingCompetition = userCompetitions.find(c => c.id === m.competitionId);
-        if (existingCompetition && m.category && m.category.trim() !== "") {
-          // Verify the match still matches this competition
-          if (matchCategoryToCompetition(m.category, existingCompetition)) {
-            return m; // Keep existing assignment
-          }
-          // If it doesn't match anymore, try to find a better match below
-        } else if (existingCompetition) {
-          // Competition exists but match has no category - keep it
-          return m;
-        }
-        // If competition doesn't exist, try to find a match below
-      }
-      
-      // Try to match by category (if category exists and is not empty)
-      const hasCategory = m.category && m.category.trim() !== "";
-      if (hasCategory) {
-        // Find the best matching competition
-        for (const competition of userCompetitions) {
-          if (matchCategoryToCompetition(m.category, competition)) {
-            // Found a match - assign it
-            console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} (category: "${m.category}") to competition "${competition.name}" (${competition.id})`);
-            return { ...m, competitionId: competition.id, competitionIdManuallySet: false };
-          }
-        }
-      }
-      
-      // Fallback: If match has no category but has external_id from import, try to match by external_id
-      // external_id format: "starsi-zaci-b-..." or "category-name-..."
-      if (!hasCategory && m.externalId && m.source === "ceskyhokej") {
-        const externalIdLower = m.externalId.toLowerCase();
-        // Extract category slug from external_id (e.g. "starsi-zaci-b-123" -> "starsi-zaci-b")
-        const categorySlugMatch = externalIdLower.match(/^(starsi-zaci-[ab]|mladsi-zaci-[ab])/);
-        if (categorySlugMatch) {
-          const categorySlug = categorySlugMatch[1];
-          // Map category slug to expected competition name patterns
-          const expectedPatterns: Record<string, string[]> = {
-            "starsi-zaci-a": ["starší", "žáci", "a"],
-            "starsi-zaci-b": ["starší", "žáci", "b"],
-            "mladsi-zaci-a": ["mladší", "žáci", "a"],
-            "mladsi-zaci-b": ["mladší", "žáci", "b"],
-          };
-          
-          const expectedWords = expectedPatterns[categorySlug];
-          if (expectedWords) {
-            // Find competition that matches the expected pattern
-            for (const competition of userCompetitions) {
-              const compNameLower = competition.name.toLowerCase().trim();
-              // Check if competition name contains all expected words
-              const matchesPattern = expectedWords.every(word => compNameLower.includes(word));
-              if (matchesPattern) {
-                console.log(`[HomePage] assignCompetitionIds: Assigning match ${m.id} (external_id: "${m.externalId}", category slug: "${categorySlug}") to competition "${competition.name}" (${competition.id}) by external_id match`);
-                return { ...m, competitionId: competition.id, competitionIdManuallySet: false };
-              }
-            }
-          }
-        }
-      }
-      
-      // No match found - leave match unassigned
-      return m;
-    });
-  };
+  // Competition assignment is stored directly on match.competitionId
 
   // Load matches - try Supabase first, fall back to localStorage
   const loadMatches = async () => {
     setLoading(true);
-    console.log("[HomePage] loadMatches: Starting to load matches...");
-    
-    if (isSupabaseConfigured()) {
-      try {
-        console.log("[HomePage] Supabase is configured, loading from Supabase...");
-        const supabaseMatches = await getMatchesSupabase();
-        console.log(`[HomePage] Loaded ${supabaseMatches.length} matches from Supabase:`, supabaseMatches);
-        
-        // Always use Supabase if configured, even if empty (to show deleted matches are gone)
-          // Deduplicate matches by ID and externalId
-          let uniqueMatches = deduplicateMatches(supabaseMatches);
-        console.log(`[HomePage] After deduplication: ${uniqueMatches.length} matches`);
-        
-        // Load competition metadata and merge with matches
-        // This includes manually set competitionId values (even if not UUID)
-        const competitionMetadata = loadCompetitionMetadata();
-        uniqueMatches = uniqueMatches.map(m => {
-          const metadata = competitionMetadata.get(m.id);
-          if (metadata?.manuallySet && metadata.competitionId) {
-            // Use competitionId from metadata (can be local ID, not just UUID)
-            return {
-              ...m,
-              competitionId: metadata.competitionId,
-              competitionIdManuallySet: true,
-            };
-          }
-          return {
-            ...m,
-            competitionIdManuallySet: metadata?.manuallySet || m.competitionIdManuallySet,
-          };
-        });
-        
-        // Assign competitionId to matches that don't have it (respecting manual flags)
-        const beforeAssign = uniqueMatches.map(m => m.competitionId);
-        console.log(`[HomePage] Active competition:`, activeCompetition);
-        console.log(`[HomePage] Matches before assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
-          uniqueMatches = assignCompetitionIds(uniqueMatches);
-        console.log(`[HomePage] Matches after assignCompetitionIds:`, uniqueMatches.map(m => ({ id: m.id, category: m.category, competitionId: m.competitionId })));
-        
-        // Don't automatically delete matches - let users manually delete duplicates
-        // Unassigned matches (without category and competitionId) will be shown in "Nezařazené" view
-        
-        // Save competitionId updates back to database if changed and Supabase is configured
-        // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
-        if (isSupabaseConfigured()) {
-          for (let i = 0; i < uniqueMatches.length; i++) {
-            const match = uniqueMatches[i];
-            const oldCompetitionId = beforeAssign[i];
-            // If competitionId was assigned/updated and match wasn't manually set, save to DB
-            // Only save if competitionId is a valid UUID (Supabase requires UUID, not local IDs)
-            if (match.competitionId && match.competitionId !== oldCompetitionId && !match.competitionIdManuallySet) {
-              // Check if competitionId is a valid UUID (Supabase competitions table uses UUIDs)
-              // Local UserCompetition IDs (like "comp-xxx") are not UUIDs and should not be saved to Supabase
-              const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.competitionId);
-              if (isValidUuid) {
-                try {
-                  console.log(`[HomePage] Updating competitionId for match ${match.id}: ${oldCompetitionId} -> ${match.competitionId}`);
-                  await updateMatchSupabase(match.id, { competition_id: match.competitionId });
-                } catch (err) {
-                  console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
-                }
-              } else {
-                console.log(`[HomePage] Skipping Supabase update for match ${match.id}: competitionId "${match.competitionId}" is not a valid UUID (likely a local UserCompetition ID)`);
-              }
-            }
-          }
-        }
-        
-        console.log(`[HomePage] Setting ${uniqueMatches.length} matches to state`);
-          setMatches(uniqueMatches);
-          setDataSource("supabase");
-          setLoading(false);
-          return;
-      } catch (err) {
-        console.error("[HomePage] Failed to load from Supabase:", err);
-      }
-    }
-    
-    // Fallback to localStorage
-    let localMatches = getMatchesLocal();
-    // Load manually set flags and merge with matches
-    const manuallySetMatchIds = loadManuallySetFlags();
-    localMatches = localMatches.map(m => ({
-      ...m,
-      competitionIdManuallySet: manuallySetMatchIds.has(m.id) || m.competitionIdManuallySet,
-    }));
-    // Deduplicate matches by ID and externalId
-    let uniqueMatches = deduplicateMatches(localMatches);
-    // Assign competitionId to matches that don't have it (respecting manual flags)
-    uniqueMatches = assignCompetitionIds(uniqueMatches);
-    
-    // Don't automatically delete matches - let users manually delete duplicates
-    // Unassigned matches (without category and competitionId) will be shown in "Nezařazené" view
-    
-    setMatches(uniqueMatches);
-    setDataSource("local");
+    const loadedMatches = await dataService.getMatches();
+    setMatches(deduplicateMatches(loadedMatches));
+    setDataSource(isSupabaseConfigured() ? "supabase" : "local");
     setLoading(false);
+  };
+
+  const handleAssignCompetition = async (match: Match, competitionId: string | null) => {
+    const updatedMatch: Match = {
+      ...match,
+      competitionId: competitionId || undefined,
+      competitionIdManuallySet: true,
+    };
+
+    const saved = await dataService.saveMatch(updatedMatch);
+    setMatches((prev) => prev.map((m) => (m.id === match.id ? saved : m)));
   };
   
   // Helper function to deduplicate matches
@@ -473,125 +188,19 @@ export default function HomePage() {
     };
   }, []);
 
-  // Reassign competitionIds when competitions list changes (new competition added/removed)
-  // This ensures matches are assigned to newly created competitions
-  useEffect(() => {
-    if (matches.length > 0 && userCompetitions.length > 0) {
-      console.log(`[HomePage] Competitions changed (${userCompetitions.length} competitions), reassigning competitionIds...`);
-      // Reassign competitionIds to existing matches when competitions change
-      // Always create new array with new object references to ensure React sees the change
-      const reassignedMatches = assignCompetitionIds(matches.map(m => ({ ...m })));
-      
-      // Check if any competitionIds actually changed
-      const hasChanges = matches.some((m, i) => m.competitionId !== reassignedMatches[i]?.competitionId);
-      
-      if (hasChanges) {
-        console.log(`[HomePage] Reassignment result: ${hasChanges ? 'changes detected' : 'no changes'}, updating matches state`);
-      setMatches(reassignedMatches);
-        
-        // Save competitionId updates back to database if changed (async, don't wait)
-        // Note: Only save if competitionId is a valid UUID (not a local UserCompetition ID)
-        if (isSupabaseConfigured() && hasChanges) {
-          reassignedMatches.forEach((match, i) => {
-            const oldMatch = matches[i];
-            if (match.competitionId && match.competitionId !== oldMatch.competitionId && !match.competitionIdManuallySet) {
-              // Check if competitionId is a valid UUID (Supabase competitions table uses UUIDs)
-              // Local UserCompetition IDs (like "comp-xxx") are not UUIDs and should not be saved to Supabase
-              const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.competitionId);
-              if (isValidUuid) {
-                updateMatchSupabase(match.id, { competition_id: match.competitionId }).catch(err => {
-                  console.error(`[HomePage] Failed to update competitionId for match ${match.id}:`, err);
-                });
-              } else {
-                console.log(`[HomePage] Skipping Supabase update for match ${match.id}: competitionId "${match.competitionId}" is not a valid UUID (likely a local UserCompetition ID)`);
-              }
-            }
-          });
-        }
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userCompetitions.length]); // Only depend on competitions.length, not matches (to avoid infinite loop)
+  // Competition assignment is managed manually per match
 
-  // Get unique categories from matches
-  const categories = Array.from(
-    new Set(matches.map((m) => m.category).filter(Boolean))
-  ).sort();
-
-  // Auto-select first category if none selected
-  useEffect(() => {
-    if (categoryFilter === null && categories.length > 0) {
-      setCategoryFilter(categories[0]);
-    }
-  }, [categoryFilter, categories]);
-
-  // Helper function to check if a match belongs to a competition
-  // Uses competitionId first (most reliable), then falls back to category matching
-  const matchesCompetition = (match: Match, competition: typeof activeCompetition): boolean => {
-    if (!competition) {
-      return false;
-    }
-    
-    // Primary: Exact match by competitionId (most reliable)
-    if (match.competitionId && match.competitionId === competition.id) {
-      return true;
-    }
-    
-    // Fallback: Match by category name (for backward compatibility and unassigned matches)
-    if (!match.category || match.category.trim() === "") {
-      return false; // No category means no match
-    }
-    
-    // Use the same matching logic as assignCompetitionIds
-    return matchCategoryToCompetition(match.category, competition);
-  };
-
-  // Filter matches by active competition first (if set), then by category
-  // Use useMemo to ensure filtering recalculates when activeCompetition or matches change
+  // Categories are no longer used for filtering; competitionId is the source of truth
+  // Filter matches by active competition
   const filteredMatches = useMemo(() => {
-    console.log(`[HomePage] useMemo filteredMatches recalculating...`, {
-      matchesCount: matches.length,
-      activeCompetition: activeCompetition ? `${activeCompetition.name} (${activeCompetition.id})` : 'null',
-      categoryFilter: categoryFilter || 'none'
-    });
-    
-    const filtered = matches.filter((m) => {
-    // If activeCompetition is null, show only unassigned matches (no competitionId and no category)
     if (activeCompetition === null) {
-      const hasCategory = m.category && m.category.trim() !== "";
-      const hasCompetitionId = !!m.competitionId;
-      
-      // Show only matches without competitionId and without category
-      const isUnassigned = !hasCompetitionId && !hasCategory;
-      if (isUnassigned) {
-        console.log(`[HomePage] Match ${m.id} included in "Nezařazené": no competitionId, no category`);
-      } else {
-        console.log(`[HomePage] Match ${m.id} filtered out from "Nezařazené": has competitionId or category`);
-      }
-      return isUnassigned;
+      return matches.filter((m) => !m.competitionId);
     }
-    
-    // If activeCompetition is set, filter by competitionId or name/category match
     if (activeCompetition) {
-        const matches = matchesCompetition(m, activeCompetition);
-        if (!matches) {
-          console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category || '(empty)'}", competitionId="${m.competitionId || '(none)'}", activeCompetition="${activeCompetition.name}" (${activeCompetition.id})`);
-        } else {
-          console.log(`[HomePage] Match ${m.id} included: category="${m.category || '(empty)'}", competitionId="${m.competitionId || '(none)'}", matches competition`);
-        }
-        return matches;
+      return matches.filter((m) => m.competitionId === activeCompetition.id);
     }
-    // If no activeCompetition, filter by category only
-      const result = categoryFilter ? m.category === categoryFilter : true;
-      if (!result) {
-        console.log(`[HomePage] Match ${m.id} filtered out: category="${m.category}", categoryFilter="${categoryFilter}"`);
-      }
-      return result;
-    });
-    
-    console.log(`[HomePage] Filtering result: ${matches.length} total matches, ${filtered.length} after filter, activeCompetition=${activeCompetition?.name || 'none'} (${activeCompetition?.id || 'none'}), categoryFilter=${categoryFilter || 'none'}`);
-    return filtered;
-  }, [matches, activeCompetition, categoryFilter]);
+    return matches;
+  }, [matches, activeCompetition]);
 
   // Sort matches: upcoming first, then by date
   const sortedMatches = [...filteredMatches].sort((a, b) => {
@@ -629,8 +238,6 @@ export default function HomePage() {
     return m.completed && matchTime < threeHoursAgo;
   });
   
-  console.log(`[HomePage] Match split: ${upcomingMatches.length} upcoming, ${pastMatches.length} past, ${sortedMatches.length} total sorted`);
-
   const matchTypeLabels: Record<string, string> = {
     friendly: "Přátelský",
     league: "Soutěžní",
@@ -638,16 +245,7 @@ export default function HomePage() {
     cup: "Pohár",
   };
 
-  // Get standings URL for current category filter or active competition
-  const getStandingsUrlForCategory = (category: string): string | undefined => {
-    // First check if active competition has a standings URL
-    if (activeCompetition?.standingsUrl) {
-      return activeCompetition.standingsUrl;
-    }
-    // Fall back to preset
-    const preset = COMPETITION_PRESETS.find(p => p.name === category);
-    return preset?.standingsUrl;
-  };
+  // Standings URL is taken from active competition
 
   const handlePresetChange = (preset: typeof COMPETITION_PRESETS[0]) => {
     setSelectedPreset(preset);
@@ -689,79 +287,37 @@ export default function HomePage() {
         let savedCount = 0;
         let skippedCount = 0;
 
-        data.matches.forEach((m: Match) => {
+        for (const m of data.matches) {
           // Check by externalId first (most reliable)
           if (m.externalId && existingByExternalId.has(m.externalId)) {
             skippedCount++;
-            return;
+            continue;
           }
 
           // Check by datetime + teams combination
           const key = `${m.datetime}-${m.home}-${m.away}`;
           if (existingByKey.has(key)) {
             skippedCount++;
-            return;
+            continue;
           }
 
           // Assign competitionId if activeCompetition is set and match doesn't have one
           let matchToSave = { ...m };
-          if (!matchToSave.competitionId && activeCompetition && m.category) {
-            // Normalize strings for comparison
-            const categoryNormalized = m.category.toLowerCase().trim()
-              .replace(/["']/g, "") // Remove quotes
-              .replace(/\s+/g, " ") // Normalize spaces
-              .replace(/\s+sk\./g, " sk") // Normalize "sk."
-              .replace(/\s+sk/g, " sk"); // Normalize "sk "
-            
-            const compNameNormalized = activeCompetition.name.toLowerCase().trim()
-              .replace(/["']/g, "")
-              .replace(/\s+/g, " ");
-            
-            // Extract key words from category (e.g., "starsi zaci b" from "Liga starších žáků \"B\" sk. 10")
-            const categoryWords = categoryNormalized
-              .replace(/liga\s*/g, "")
-              .replace(/starších|starší/g, "starsi")
-              .replace(/mladších|mladší/g, "mladsi")
-              .replace(/žáků|žák/g, "zaci")
-              .replace(/sk\.?\s*\d+/g, "")
-              .trim()
-              .split(/\s+/)
-              .filter(w => w && w.length > 1);
-            
-            const compNameWords = compNameNormalized
-              .replace(/starší/g, "starsi")
-              .replace(/mladší/g, "mladsi")
-              .replace(/žák/g, "zaci")
-              .trim()
-              .split(/\s+/)
-              .filter(w => w && w.length > 1);
-            
-            // Match if all key words from competition name are in category, or vice versa
-            const allCompWordsInCategory = compNameWords.length > 0 && 
-              compNameWords.every(w => categoryWords.some(cw => cw.includes(w) || w.includes(cw)));
-            const allCategoryWordsInComp = categoryWords.length > 0 &&
-              categoryWords.every(cw => compNameWords.some(w => cw.includes(w) || w.includes(cw)));
-            
-            // Also check direct substring match
-            const directMatch = categoryNormalized.includes(compNameNormalized) ||
-                               compNameNormalized.includes(categoryNormalized) ||
-                               categoryNormalized === compNameNormalized;
-            
-            if (directMatch || allCompWordsInCategory || allCategoryWordsInComp) {
-              matchToSave.competitionId = activeCompetition.id;
-            }
+          if (!matchToSave.competitionId && activeCompetition) {
+            matchToSave.competitionId = activeCompetition.id;
           }
 
           // No duplicate found, save the match
-          saveMatch(matchToSave);
+          // eslint-disable-next-line no-await-in-loop
+          const saved = await dataService.saveMatch(matchToSave);
           savedCount++;
           
           // Add to tracking maps to avoid duplicates within the same import batch
-          if (matchToSave.externalId) {
-            existingByExternalId.set(matchToSave.externalId, matchToSave);
+          if (saved.externalId) {
+            existingByExternalId.set(saved.externalId, saved);
           }
-          existingByKey.set(key, matchToSave);
-        });
+          existingByKey.set(key, saved);
+        }
 
 
         // Reload matches (prefer Supabase if configured)
@@ -805,22 +361,23 @@ export default function HomePage() {
       );
 
       let importedCount = 0;
-      newMatches.forEach((m) => {
+      for (const m of newMatches) {
         // Ensure required fields
         if (m.home && m.away && m.datetime) {
-          saveMatch({
+          // eslint-disable-next-line no-await-in-loop
+          await dataService.saveMatch({
             ...m,
-            id: m.id || `imported-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            id: m.id || crypto.randomUUID(),
             seasonId: m.seasonId || "2024-2025",
             matchType: m.matchType || "league",
             source: "ceskyhokej",
           });
           importedCount++;
         }
-      });
+      }
       
       // Reload matches (prefer Supabase if configured)
-      loadMatches();
+      await loadMatches();
       setImportResult({
         total: importedCount,
         completed: 0,
@@ -853,38 +410,19 @@ export default function HomePage() {
       },
     };
 
-    saveMatch(updatedMatch);
-    // Reload matches
-    loadMatches();
+    await dataService.saveMatch(updatedMatch);
+    await loadMatches();
     setEditingMatch(null);
   };
 
   const handleDeleteMatch = async () => {
     if (!deletingMatch) return;
     
-    // Always try to delete from Supabase if configured, even if dataSource is "local"
-    // This ensures matches are deleted from database
-    if (isSupabaseConfigured()) {
-      const success = await deleteMatchSupabase(deletingMatch.id);
-      if (!success) {
-        alert("Nepodařilo se smazat zápas z databáze");
-        setDeletingMatch(null);
-        return;
-      }
-    }
-    
-    // Also delete from localStorage if exists there
-      deleteMatchLocal(deletingMatch.id);
-    
-    // Remove manually set flag if exists
-    if (typeof window !== 'undefined') {
-      try {
-        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-        delete metadata[deletingMatch.id];
-        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
-      } catch (err) {
-        // Ignore errors
-      }
+    const success = await dataService.deleteMatch(deletingMatch.id);
+    if (!success && isSupabaseConfigured()) {
+      alert("Nepodařilo se smazat zápas z databáze");
+      setDeletingMatch(null);
+      return;
     }
     
     // Reload matches to reflect deletion
@@ -899,29 +437,9 @@ export default function HomePage() {
     const count = selectedMatchIds.size;
     if (!confirm(`Opravdu smazat ${count} vybraných zápasů?`)) return;
 
-    // Always try to delete from Supabase if configured
-    if (isSupabaseConfigured()) {
-      for (const matchId of selectedMatchIds) {
-        // best-effort – pokud se některý zápas nepodaří smazat, pokračujeme dál
-        // eslint-disable-next-line no-await-in-loop
-        await deleteMatchSupabase(matchId);
-      }
-    }
-    
-    // Also delete from localStorage
-    selectedMatchIds.forEach((matchId) => deleteMatchLocal(matchId));
-    
-    // Remove manually set flags
-    if (typeof window !== 'undefined') {
-      try {
-        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-        selectedMatchIds.forEach(matchId => {
-          delete metadata[matchId];
-        });
-        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
-      } catch (err) {
-        // Ignore errors
-      }
+    for (const matchId of selectedMatchIds) {
+      // eslint-disable-next-line no-await-in-loop
+      await dataService.deleteMatch(matchId);
     }
     
     // Clear selection and reload matches
@@ -939,42 +457,14 @@ export default function HomePage() {
     for (const matchId of selectedMatchIds) {
       const match = matches.find(m => m.id === matchId);
       if (!match) continue;
-      
-      // Store competitionId in localStorage metadata (works for both UUID and local IDs)
-      if (typeof window !== 'undefined') {
-        try {
-          const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-          if (finalCompetitionId) {
-            metadata[matchId] = { manuallySet: true, competitionId: finalCompetitionId };
-          } else {
-            delete metadata[matchId];
-          }
-          localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
-        } catch (err) {
-          console.error('[HomePage] Failed to save competition metadata:', err);
-        }
-      }
-      
-      // Update in Supabase if configured and competitionId is UUID
-      if (isSupabaseConfigured() && finalCompetitionId) {
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(finalCompetitionId);
-        if (isUuid) {
-          try {
-            // eslint-disable-next-line no-await-in-loop
-            await updateMatchSupabase(matchId, { competition_id: finalCompetitionId });
-          } catch (err) {
-            console.error(`[HomePage] Failed to update competitionId for match ${matchId}:`, err);
-          }
-        }
-      }
-      
-      // Update in localStorage
+
       const updatedMatch = {
         ...match,
         competitionId: finalCompetitionId,
         competitionIdManuallySet: true,
       };
-      saveMatch(updatedMatch);
+      // eslint-disable-next-line no-await-in-loop
+      await dataService.saveMatch(updatedMatch);
     }
     
     // Clear selection and reload matches
@@ -1009,34 +499,12 @@ export default function HomePage() {
 
   const handleDeleteFilteredMatches = async () => {
     if (filteredMatches.length === 0) return;
-    const label = categoryFilter
-      ? `opravdu smazat všech ${filteredMatches.length} zápasů v kategorii "${categoryFilter}"?`
-      : `opravdu smazat všech ${filteredMatches.length} zápasů?`;
+    const label = `opravdu smazat všech ${filteredMatches.length} zápasů?`;
     if (!confirm(`Chcete ${label}`)) return;
 
-    // Always try to delete from Supabase if configured
-    if (isSupabaseConfigured()) {
-      for (const m of filteredMatches) {
-        // best-effort – pokud se některý zápas nepodaří smazat, pokračujeme dál
-        // eslint-disable-next-line no-await-in-loop
-        await deleteMatchSupabase(m.id);
-      }
-    }
-    
-    // Also delete from localStorage
-      filteredMatches.forEach((m) => deleteMatchLocal(m.id));
-    
-    // Remove manually set flags
-    if (typeof window !== 'undefined') {
-      try {
-        const metadata = JSON.parse(localStorage.getItem('match-competition-metadata') || '{}');
-        filteredMatches.forEach(m => {
-          delete metadata[m.id];
-        });
-        localStorage.setItem('match-competition-metadata', JSON.stringify(metadata));
-      } catch (err) {
-        // Ignore errors
-      }
+    for (const m of filteredMatches) {
+      // eslint-disable-next-line no-await-in-loop
+      await dataService.deleteMatch(m.id);
     }
     
     // Reload matches to reflect deletions
@@ -1044,9 +512,7 @@ export default function HomePage() {
   };
 
   // Get current standings URL based on category filter or active competition
-  const currentStandingsUrl = categoryFilter
-    ? getStandingsUrlForCategory(categoryFilter) 
-    : (activeCompetition?.standingsUrl || (categories.length > 0 ? getStandingsUrlForCategory(categories[0]) : undefined));
+  const currentStandingsUrl = activeCompetition?.standingsUrl;
 
   return (
     <main className="flex flex-1 flex-col gap-4 px-4 py-4">
@@ -1090,35 +556,14 @@ export default function HomePage() {
         Rychlý import / JSON import
       </button>
 
-      {/* Category filter - no "Vše" option, always filter by category */}
-      {categories.length > 0 && (
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            {categories.map((cat) => {
-              const count = matches.filter((m) => m.category === cat).length;
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setCategoryFilter(cat)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                    categoryFilter === cat
-                      ? "bg-accentPrimary text-white"
-                      : "bg-bgSurfaceSoft text-slate-400"
-                  }`}
-                >
-                  {cat} ({count})
-                </button>
-              );
-            })}
-          </div>
-          {filteredMatches.length > 0 && (
-            <button
-              onClick={handleDeleteFilteredMatches}
-              className="rounded-full bg-accentDanger/10 px-3 py-1.5 text-[10px] font-medium text-accentDanger hover:bg-accentDanger/20"
-            >
-              🗑️ Smazat {filteredMatches.length} záznamů
-            </button>
-          )}
+      {filteredMatches.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            onClick={handleDeleteFilteredMatches}
+            className="rounded-full bg-accentDanger/10 px-3 py-1.5 text-[10px] font-medium text-accentDanger hover:bg-accentDanger/20"
+          >
+            🗑️ Smazat {filteredMatches.length} záznamů
+          </button>
         </div>
       )}
 
@@ -1417,9 +862,7 @@ export default function HomePage() {
           <h2 className="mb-2 text-lg font-semibold">Žádné zápasy pro aktuální filtr</h2>
           <p className="mb-6 max-w-xs text-sm text-slate-400">
             {activeCompetition 
-              ? `Máte ${matches.length} zápasů celkem, ale žádný neodpovídá soutěži "${activeCompetition.name}". Zkuste změnit výběr soutěže v dropdownu.`
-              : categoryFilter
-              ? `Máte ${matches.length} zápasů celkem, ale žádný neodpovídá kategorii "${categoryFilter}".`
+              ? `Máte ${matches.length} zápasů celkem, ale žádný není přiřazen do soutěže "${activeCompetition.name}". Zkuste změnit výběr soutěže v dropdownu.`
               : `Máte ${matches.length} zápasů, ale žádný neprošel filtrem.`}
           </p>
           {process.env.NODE_ENV === 'development' && (
@@ -1428,7 +871,6 @@ export default function HomePage() {
               <div>Total matches: {matches.length}</div>
               <div>Filtered matches: {filteredMatches.length}</div>
               <div>Active competition: {activeCompetition?.name || 'none'} (ID: {activeCompetition?.id || 'none'})</div>
-              <div>Category filter: {categoryFilter || 'none'}</div>
               <div className="mt-2">Sample matches (first 5):</div>
               {matches.slice(0, 5).map(m => (
                 <div key={m.id} className="ml-2">
@@ -1497,9 +939,12 @@ export default function HomePage() {
                           if (data.success && data.matches) {
                             // Update only upcoming matches
                             const upcomingFromApi = data.matches.filter((m: Match) => !m.completed);
-                            upcomingFromApi.forEach((m: Match) => saveMatch(m));
+                            for (const m of upcomingFromApi) {
+                              // eslint-disable-next-line no-await-in-loop
+                              await dataService.saveMatch(m);
+                            }
                             // Reload matches
-                            loadMatches();
+                            await loadMatches();
                             alert(`Aktualizováno ${upcomingFromApi.length} nadcházejících zápasů`);
                           }
                         } catch (e) {
@@ -1573,6 +1018,22 @@ export default function HomePage() {
                           >
                             🗑️
                           </button>
+                        </div>
+                        <div className="mt-3">
+                          <label className="mb-1 block text-[10px] text-slate-500">Soutěž</label>
+                          <select
+                            value={m.competitionId || ""}
+                            onChange={(e) => handleAssignCompetition(m, e.target.value || null)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-full rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-200"
+                          >
+                            <option value="">Nezařazené</option>
+                            {userCompetitions.map((comp) => (
+                              <option key={comp.id} value={comp.id}>
+                                {comp.name}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <Link href={`/match/${m.id}`} className="block">
                           <div className="mt-1 text-sm font-semibold">
@@ -1725,6 +1186,21 @@ export default function HomePage() {
                             {m.source === "ceskyhokej" && (
                               <span className="ml-1 text-accentSuccess">(import)</span>
                             )}
+                          </div>
+                          <div className="mt-2">
+                            <label className="mb-1 block text-[10px] text-slate-500">Soutěž</label>
+                            <select
+                              value={m.competitionId || ""}
+                              onChange={(e) => handleAssignCompetition(m, e.target.value || null)}
+                              className="w-full rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-200"
+                            >
+                              <option value="">Nezařazené</option>
+                              {userCompetitions.map((comp) => (
+                                <option key={comp.id} value={comp.id}>
+                                  {comp.name}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           {/* Roster summary */}
                           {m.roster?.goalScorers && m.roster.goalScorers.length > 0 && (
