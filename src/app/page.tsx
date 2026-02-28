@@ -1,6 +1,5 @@
 "use client";
-import type { CompetitionStandings } from "@/lib/types";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Match, Goalie } from "@/lib/types";
@@ -17,6 +16,13 @@ import { StandingsButton } from "@/components/StandingsLink";
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
 import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
+import { findCompetitionByExternalId } from "@/lib/repositories/competitions";
+import {
+  createMatch as createMatchSupabase,
+  findMatchByExternalId,
+  updateMatch,
+} from "@/lib/repositories/matches";
+import { findOrCreateTeam } from "@/lib/repositories/teams";
 
 export default function HomePage() {
   // User competition context
@@ -42,8 +48,6 @@ export default function HomePage() {
   const [importMode, setImportMode] = useState<"api" | "json">("api");
   const [jsonInput, setJsonInput] = useState("");
   const [showImportWizard, setShowImportWizard] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [dataSource, setDataSource] = useState<"supabase" | "local">("local");
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
   const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
 
@@ -90,13 +94,10 @@ export default function HomePage() {
   // Competition assignment is stored directly on match.competitionId
 
   // Load matches - try Supabase first, fall back to localStorage
-  const loadMatches = async () => {
-    setLoading(true);
+  const loadMatches = useCallback(async () => {
     const loadedMatches = await dataService.getMatches();
     setMatches(deduplicateMatches(loadedMatches));
-    setDataSource(isSupabaseConfigured() ? "supabase" : "local");
-    setLoading(false);
-  };
+  }, []);
 
   const handleAssignCompetition = async (match: Match, competitionId: string | null) => {
     const updatedMatch: Match = {
@@ -161,7 +162,7 @@ export default function HomePage() {
   useEffect(() => {
     loadMatches();
     setGoalies(getGoalies());
-  }, []);
+  }, [loadMatches]);
 
   // Reload matches when navigating back to home page (but not on initial mount)
   const prevPathnameRef = useRef<string | null>(null);
@@ -171,7 +172,7 @@ export default function HomePage() {
       loadMatches();
     }
     prevPathnameRef.current = pathname;
-  }, [pathname]);
+  }, [pathname, loadMatches]);
 
   // Reload matches when page becomes visible (e.g., after returning from match detail)
   useEffect(() => {
@@ -186,7 +187,7 @@ export default function HomePage() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [loadMatches]);
 
   // Competition assignment is managed manually per match
 
@@ -271,54 +272,88 @@ export default function HomePage() {
       const data = await response.json();
 
       if (data.success && data.matches) {
-        // Check for duplicates before saving
-        const existingMatches = matches;
-        const existingByExternalId = new Map(
-          existingMatches.filter(m => m.externalId).map(m => [m.externalId!, m])
-        );
-        const existingByKey = new Map(
-          existingMatches.map(m => {
-            // Create unique key from datetime + home + away
-            const key = `${m.datetime}-${m.home}-${m.away}`;
-            return [key, m];
-          })
-        );
+        const importPreset =
+          COMPETITION_PRESETS.find((p) => p.id === importConfig.category) || selectedPreset;
 
-        let savedCount = 0;
-        let skippedCount = 0;
-
-        for (const m of data.matches) {
-          // Check by externalId first (most reliable)
-          if (m.externalId && existingByExternalId.has(m.externalId)) {
-            skippedCount++;
-            continue;
+        let competitionId: string | undefined;
+        if (importPreset.externalId) {
+          if (isSupabaseConfigured()) {
+            competitionId = (await findCompetitionByExternalId(importPreset.externalId))?.id;
+          } else {
+            competitionId = userCompetitions.find(
+              (c) => c.externalId === importPreset.externalId
+            )?.id;
           }
-
-          // Check by datetime + teams combination
-          const key = `${m.datetime}-${m.home}-${m.away}`;
-          if (existingByKey.has(key)) {
-            skippedCount++;
-            continue;
-          }
-
-          // Assign competitionId if activeCompetition is set and match doesn't have one
-          let matchToSave = { ...m };
-          if (!matchToSave.competitionId && activeCompetition) {
-            matchToSave.competitionId = activeCompetition.id;
-          }
-
-          // No duplicate found, save the match
-          // eslint-disable-next-line no-await-in-loop
-          const saved = await dataService.saveMatch(matchToSave);
-          savedCount++;
-          
-          // Add to tracking maps to avoid duplicates within the same import batch
-          if (saved.externalId) {
-            existingByExternalId.set(saved.externalId, saved);
-          }
-          existingByKey.set(key, saved);
         }
 
+        if (!competitionId) {
+          alert("Soutěž nebyla nalezena. Zkuste obnovit stránku.");
+          return;
+        }
+
+        for (const m of data.matches) {
+          const homeTeamName = m.home || m.homeTeamName || "HC Slovan Ústí n.L.";
+          const awayTeamName = m.away || m.awayTeamName || "Hosté";
+          const matchToSave = {
+            ...m,
+            competitionId,
+            competitionIdManuallySet: false,
+          };
+
+          if (isSupabaseConfigured()) {
+            const homeTeamId = await findOrCreateTeam(homeTeamName);
+            const awayTeamId = await findOrCreateTeam(awayTeamName);
+            const payload = {
+              home_team_id: homeTeamId || undefined,
+              home_team_name: homeTeamName,
+              away_team_id: awayTeamId || undefined,
+              away_team_name: awayTeamName,
+              datetime: matchToSave.datetime,
+              competition_id: competitionId,
+              season_id: matchToSave.seasonId || importConfig.season,
+              venue: matchToSave.venue || undefined,
+              match_type: (matchToSave.matchType || "league") as
+                | "friendly"
+                | "league"
+                | "tournament"
+                | "playoff"
+                | "cup",
+              status: matchToSave.status,
+              goalie_id: matchToSave.goalieId || undefined,
+              home_score: matchToSave.homeScore ?? undefined,
+              away_score: matchToSave.awayScore ?? undefined,
+              source: matchToSave.source || "ceskyhokej",
+              external_id: matchToSave.externalId || undefined,
+              external_url: matchToSave.externalUrl || undefined,
+            };
+
+            const existing = matchToSave.externalId
+              ? await findMatchByExternalId(matchToSave.externalId)
+              : null;
+
+            if (existing) {
+              const updatePayload = {
+                ...payload,
+                goalie_id: existing.goalieId ? undefined : payload.goalie_id,
+                status: existing.status === "completed" ? undefined : payload.status,
+                manual_shots: undefined,
+                manual_saves: undefined,
+                manual_goals_against: undefined,
+              };
+              const updated = await updateMatch(existing.id, updatePayload);
+              if (updated) {
+                continue;
+              }
+            }
+
+            const created = await createMatchSupabase(payload);
+            if (created) {
+              continue;
+            }
+          } else {
+            await dataService.saveMatch(matchToSave);
+          }
+        }
 
         // Reload matches (prefer Supabase if configured)
         await loadMatches();
@@ -364,7 +399,6 @@ export default function HomePage() {
       for (const m of newMatches) {
         // Ensure required fields
         if (m.home && m.away && m.datetime) {
-          // eslint-disable-next-line no-await-in-loop
           await dataService.saveMatch({
             ...m,
             id: m.id || crypto.randomUUID(),
@@ -438,7 +472,6 @@ export default function HomePage() {
     if (!confirm(`Opravdu smazat ${count} vybraných zápasů?`)) return;
 
     for (const matchId of selectedMatchIds) {
-      // eslint-disable-next-line no-await-in-loop
       await dataService.deleteMatch(matchId);
     }
     
@@ -463,7 +496,6 @@ export default function HomePage() {
         competitionId: finalCompetitionId,
         competitionIdManuallySet: true,
       };
-      // eslint-disable-next-line no-await-in-loop
       await dataService.saveMatch(updatedMatch);
     }
     
@@ -503,7 +535,6 @@ export default function HomePage() {
     if (!confirm(`Chcete ${label}`)) return;
 
     for (const m of filteredMatches) {
-      // eslint-disable-next-line no-await-in-loop
       await dataService.deleteMatch(m.id);
     }
     
@@ -874,7 +905,7 @@ export default function HomePage() {
               <div className="mt-2">Sample matches (first 5):</div>
               {matches.slice(0, 5).map(m => (
                 <div key={m.id} className="ml-2">
-                  {m.id.substring(0, 20)}...: category="{m.category || 'empty'}", competitionId="{m.competitionId || 'none'}"
+                  {`${m.id.substring(0, 20)}...: category="${m.category || "empty"}", competitionId="${m.competitionId || "none"}"`}
                 </div>
               ))}
             </div>
@@ -940,7 +971,6 @@ export default function HomePage() {
                             // Update only upcoming matches
                             const upcomingFromApi = data.matches.filter((m: Match) => !m.completed);
                             for (const m of upcomingFromApi) {
-                              // eslint-disable-next-line no-await-in-loop
                               await dataService.saveMatch(m);
                             }
                             // Reload matches

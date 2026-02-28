@@ -41,7 +41,7 @@ export function useAutoSync() {
       addToast("Offline režim: data se synchronizují po připojení.", "info");
       hasShownOfflineToast.current = true;
     }
-  }, []);
+  }, [addToast]);
 
   // Manual sync trigger
   const syncNow = useCallback(async () => {

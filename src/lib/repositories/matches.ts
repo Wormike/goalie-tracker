@@ -142,7 +142,7 @@ export function appMatchToDbPayload(match: Partial<Match>): Partial<DbMatch> {
     payload.competition_id = isUuid(match.competitionId) ? match.competitionId : null;
   }
   if (match.seasonId !== undefined) {
-    payload.season_id = isUuid(match.seasonId) ? match.seasonId : null;
+    payload.season_id = match.seasonId || null;
   }
   if (match.venue !== undefined) payload.venue = match.venue || null;
   if (match.matchType !== undefined) payload.match_type = match.matchType;
@@ -252,6 +252,39 @@ export async function getMatchById(id: string): Promise<Match | null> {
 }
 
 /**
+ * Find match by external ID
+ */
+export async function findMatchByExternalId(externalId: string): Promise<Match | null> {
+  if (!isSupabaseConfigured() || !supabase || !externalId) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("matches")
+      .select(`
+        *,
+        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+        away_team:teams!matches_away_team_id_fkey(id, name, short_name),
+        competition_relation:competitions!matches_competition_id_fkey(id, name, category),
+        goalie:goalies!matches_goalie_id_fkey(id, first_name, last_name, jersey_number)
+      `)
+      .eq("external_id", externalId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[matches] Error fetching by external_id:", error.message);
+      return null;
+    }
+
+    return data ? dbMatchToAppMatch(data) : null;
+  } catch (err) {
+    console.error("[matches] Unexpected error:", err);
+    return null;
+  }
+}
+
+/**
  * Create a new match
  */
 export interface CreateMatchPayload {
@@ -293,7 +326,7 @@ export async function createMatch(payload: CreateMatchPayload): Promise<Match | 
       away_team_name: payload.away_team_name,
       datetime: payload.datetime,
       competition_id: isUuid(payload.competition_id) ? payload.competition_id : null, // FK to competitions table
-      season_id: isUuid(payload.season_id) ? payload.season_id : null,
+      season_id: payload.season_id || null,
       venue: payload.venue || null,
       match_type: payload.match_type || "friendly",
       status: normalizeMatchStatus(payload.status) as "scheduled" | "in_progress" | "completed" | "cancelled",
@@ -363,7 +396,7 @@ export async function updateMatch(
     // Skip competition (TEXT) field - it's not in the production schema
     // if (payload.competition !== undefined) updatePayload.competition = payload.competition || null;
     if (payload.competition_id !== undefined) updatePayload.competition_id = isUuid(payload.competition_id) ? payload.competition_id : null;
-    if (payload.season_id !== undefined) updatePayload.season_id = isUuid(payload.season_id) ? payload.season_id : null;
+    if (payload.season_id !== undefined) updatePayload.season_id = payload.season_id || null;
     if (payload.venue !== undefined) updatePayload.venue = payload.venue || null;
     if (payload.match_type !== undefined) updatePayload.match_type = payload.match_type;
     if (payload.status !== undefined) updatePayload.status = payload.status;

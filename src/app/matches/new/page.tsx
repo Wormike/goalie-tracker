@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import type { Goalie, Match, MatchType, MatchStatus, Season, Team, Competition } from "@/lib/types";
+import type { Goalie, Match, MatchType, Season, Team, Competition } from "@/lib/types";
 import {
   getSeasons,
   getCurrentSeason,

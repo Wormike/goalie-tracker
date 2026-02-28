@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ActionBar } from "@/components/ActionBar";
 import { LiveStatsBar } from "@/components/LiveStatsBar";
@@ -61,13 +61,11 @@ export default function MatchPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showEventList, setShowEventList] = useState(false);
   const [activeTab, setActiveTab] = useState<"tracking" | "roster">("tracking");
-  const [loading, setLoading] = useState(true);
   const [currentSituation, setCurrentSituation] = useState<SituationType>("even");
   const { competitions: userCompetitions } = useCompetitions();
 
   // Load match data
-  const loadMatchData = async (matchId: string) => {
-    setLoading(true);
+  const loadMatchData = useCallback(async (matchId: string) => {
     const [matches, eventsForMatch, goaliesList] = await Promise.all([
       dataService.getMatches(),
       dataService.getEvents(matchId),
@@ -76,7 +74,6 @@ export default function MatchPage() {
 
     const loadedMatch = matches.find((m) => m.id === matchId) || null;
     if (!loadedMatch) {
-      setLoading(false);
       return;
     }
 
@@ -108,17 +105,16 @@ export default function MatchPage() {
     setAllEvents(eventsForMatch);
     setGoalies(goaliesList);
     setGoalie(goaliesList.find((g) => g.id === loadedMatch.goalieId) || null);
-    setLoading(false);
-  };
+  }, []);
 
-  const loadGoalies = async () => {
+  const loadGoalies = useCallback(async () => {
     const loadedGoalies = await dataService.getGoalies();
     setGoalies(loadedGoalies);
     if (match?.goalieId) {
       const foundGoalie = loadedGoalies.find(g => g.id === match.goalieId);
       setGoalie(foundGoalie || null);
     }
-  };
+  }, [match]);
 
   useEffect(() => {
     const initData = async () => {
@@ -126,7 +122,7 @@ export default function MatchPage() {
       await loadGoalies();
     };
     initData();
-  }, [params.id]);
+  }, [params.id, loadMatchData, loadGoalies]);
 
   // Reload goalies when page becomes visible (e.g., after creating goalie on another page)
   useEffect(() => {
@@ -138,21 +134,21 @@ export default function MatchPage() {
     
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [loadGoalies]);
 
   // Reload goalies when goalie selection modal opens
   useEffect(() => {
     if (showGoalieSelect) {
       loadGoalies();
     }
-  }, [showGoalieSelect]);
+  }, [showGoalieSelect, loadGoalies]);
 
   // Update goalie when match changes (e.g., after loading)
   useEffect(() => {
     if (match?.goalieId) {
       loadGoalies();
     }
-  }, [match?.goalieId]);
+  }, [match?.goalieId, loadGoalies]);
 
   // Auto-revert completed match to upcoming if goalie and events are removed
   useEffect(() => {
@@ -199,7 +195,7 @@ export default function MatchPage() {
         }
       }
     }
-  }, [match?.status, match?.completed, match?.goalieId, events.length, match?.id, match?.datetime]);
+  }, [match, events.length, router, syncNow]);
 
   // Auto-refresh events when match changes
   useEffect(() => {
@@ -303,7 +299,6 @@ export default function MatchPage() {
     if (finalGoalieId) {
       const updatedEvents = events.map((e) => ({ ...e, goalieId: finalGoalieId }));
       for (const event of updatedEvents) {
-        // eslint-disable-next-line no-await-in-loop
         await dataService.saveEvent(event);
       }
       const refreshed = await dataService.getEvents(match.id);

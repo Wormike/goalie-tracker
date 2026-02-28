@@ -3,7 +3,18 @@
  */
 
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import type { GoalieEvent, Period, ResultType, InputSource } from "@/lib/types";
+import type {
+  GoalieEvent,
+  Period,
+  ResultType,
+  InputSource,
+  ShotZone,
+  GoalZone,
+  SaveType,
+  GoalType,
+  SituationType,
+  EventStatus,
+} from "@/lib/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Database types (match Supabase schema)
@@ -51,9 +62,9 @@ export function dbEventToAppEvent(db: DbGoalieEvent): GoalieEvent {
   };
 
   // Map situation: "pp"/"sh" -> legacy "powerplay"/"shorthanded" for compatibility
-  let situation: string = db.situation || "even";
-  if (situation === "pp") situation = "powerplay" as any;
-  if (situation === "sh") situation = "shorthanded" as any;
+  let situation: SituationType = (db.situation || "even") as SituationType;
+  if (situation === "pp") situation = "powerplay";
+  if (situation === "sh") situation = "shorthanded";
 
   return {
     id: db.id,
@@ -67,26 +78,26 @@ export function dbEventToAppEvent(db: DbGoalieEvent): GoalieEvent {
       ? {
           x: Number(db.shot_x),
           y: Number(db.shot_y),
-          zone: (db.shot_zone || getZoneFromCoords(Number(db.shot_x), Number(db.shot_y))) as any,
+          zone: (db.shot_zone || getZoneFromCoords(Number(db.shot_x), Number(db.shot_y))) as ShotZone,
         }
       : undefined,
     goalPosition: db.goal_x !== null && db.goal_y !== null
       ? {
           x: Number(db.goal_x),
           y: Number(db.goal_y),
-          zone: (db.goal_zone || "middle_center") as any,
+          zone: (db.goal_zone || "middle_center") as GoalZone,
         }
       : undefined,
     shotType: db.shot_type || undefined,
-    saveType: db.save_type as any || undefined,
-    goalType: db.goal_type as any || undefined,
-    situation: situation as any,
+    saveType: (db.save_type as SaveType | null) || undefined,
+    goalType: (db.goal_type as GoalType | null) || undefined,
+    situation,
     isRebound: db.is_rebound ?? false,
     rebound: db.is_rebound ?? false, // Legacy field
     isScreened: db.is_screened ?? false,
     screenedView: db.is_screened ?? false, // Legacy field
     inputSource: (db.input_source as InputSource) || "manual",
-    status: (db.status as any) || "confirmed",
+    status: (db.status === "pending" ? "confirmed" : db.status) as EventStatus,
     createdAt: db.created_at,
     updatedAt: db.updated_at,
   };
@@ -299,10 +310,10 @@ export async function updateEvent(
     if (payload.save_type !== undefined) updatePayload.save_type = payload.save_type || null;
     if (payload.goal_type !== undefined) updatePayload.goal_type = payload.goal_type || null;
     if (payload.situation !== undefined) {
-      let situation: string = payload.situation;
-      if (situation === "powerplay") situation = "pp" as any;
-      if (situation === "shorthanded") situation = "sh" as any;
-      updatePayload.situation = situation as "even" | "pp" | "sh" | "4v4" | "3v3";
+      let situation = payload.situation;
+      if (situation === "powerplay") situation = "pp";
+      if (situation === "shorthanded") situation = "sh";
+      updatePayload.situation = situation as DbGoalieEvent["situation"];
     }
     if (payload.is_rebound !== undefined) updatePayload.is_rebound = payload.is_rebound ?? null;
     if (payload.is_screened !== undefined) updatePayload.is_screened = payload.is_screened ?? null;

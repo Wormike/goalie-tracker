@@ -13,6 +13,7 @@ import type {
   CompetitionStandings,
 } from "./types";
 import { normalizeMatchStatus } from "./utils/matchStatus";
+import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STORAGE KEYS
@@ -67,40 +68,15 @@ const DEFAULT_TEAM: Team = {
   createdAt: new Date().toISOString(),
 };
 
-const DEFAULT_COMPETITIONS: Competition[] = [
-  {
-    id: "starsi-zaci-a-2025",
-    name: "Liga starších žáků A – Ústecká",
-    category: "Starší žáci A",
-    seasonId: "2025-2026",
-    externalId: "1860",
-    source: "ceskyhokej",
-  },
-  {
-    id: "starsi-zaci-b-2025",
-    name: "Liga starších žáků B – Ústecká",
-    category: "Starší žáci B",
-    seasonId: "2025-2026",
-    externalId: "1872",
-    source: "ceskyhokej",
-  },
-  {
-    id: "mladsi-zaci-a-2025",
-    name: "Liga mladších žáků A – Ústecká",
-    category: "Mladší žáci A",
-    seasonId: "2025-2026",
-    externalId: "1884",
-    source: "ceskyhokej",
-  },
-  {
-    id: "mladsi-zaci-b-2025",
-    name: "Liga mladších žáků B – Ústecká",
-    category: "Mladší žáci B",
-    seasonId: "2025-2026",
-    externalId: "1894",
-    source: "ceskyhokej",
-  },
-];
+const DEFAULT_COMPETITIONS: Competition[] = COMPETITION_PRESETS.map((preset) => ({
+  id: preset.id,
+  name: preset.name,
+  category: preset.name,
+  seasonId: preset.season,
+  externalId: preset.externalId,
+  source: "ceskyhokej",
+  standingsUrl: preset.standingsUrl,
+}));
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS

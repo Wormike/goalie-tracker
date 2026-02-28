@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS teams (
 
 -- Index pro vyhledávání podle externího ID
 CREATE INDEX IF NOT EXISTS idx_teams_club_external_id ON teams(club_external_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_name_unique ON teams(name);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SEASONS - Sezóny
@@ -67,6 +68,8 @@ CREATE TABLE IF NOT EXISTS competitions (
 
 CREATE INDEX IF NOT EXISTS idx_competitions_season ON competitions(season_id);
 CREATE INDEX IF NOT EXISTS idx_competitions_external_id ON competitions(external_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_competitions_external_id_unique
+  ON competitions(external_id) WHERE external_id IS NOT NULL;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- GOALIES - Brankáři
@@ -142,6 +145,8 @@ CREATE INDEX IF NOT EXISTS idx_matches_datetime ON matches(datetime DESC);
 CREATE INDEX IF NOT EXISTS idx_matches_goalie ON matches(goalie_id);
 CREATE INDEX IF NOT EXISTS idx_matches_competition ON matches(competition_id);
 CREATE INDEX IF NOT EXISTS idx_matches_external_id ON matches(external_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_external_id_unique
+  ON matches(external_id) WHERE external_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_matches_away_team ON matches(away_team_id);
 CREATE INDEX IF NOT EXISTS idx_matches_season_id ON matches(season_id);
 

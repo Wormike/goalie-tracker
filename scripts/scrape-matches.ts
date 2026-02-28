@@ -143,9 +143,6 @@ async function scrapeCompetition(
     const matches = await page.evaluate((category: string) => {
       const results: ScrapedMatch[] = [];
       
-      // Try to find game links
-      const gameLinks = document.querySelectorAll('a[href*="/game/"], a[href*="/zapas/"]');
-      
       // Find rows that contain game data
       const rows = document.querySelectorAll('table tbody tr, .game-row, .game-item');
       
@@ -174,7 +171,7 @@ async function scrapeCompetition(
           
           // Try to extract from cell structure
           const cells = row.querySelectorAll('td');
-          cells.forEach((cell, cellIndex) => {
+          cells.forEach((cell) => {
             const cellText = cell.textContent?.trim() || '';
             
             // Score pattern
@@ -227,7 +224,7 @@ async function scrapeCompetition(
               completed: homeScore !== null && awayScore !== null,
             });
           }
-        } catch (e) {
+        } catch {
           // Skip problematic rows
         }
       });

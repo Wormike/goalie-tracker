@@ -22,15 +22,12 @@ export default function GoalieDetailPage() {
   const [selectedSeason, setSelectedSeason] = useState<string>("all");
   const [selectedMatch, setSelectedMatch] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<"stats" | "heatmap" | "goal">("stats");
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
-      setLoading(true);
       const allGoalies = await dataService.getGoalies();
       const g = allGoalies.find((goalie) => goalie.id === params.id);
       if (!g) {
-        setLoading(false);
         return;
       }
       
@@ -45,7 +42,6 @@ export default function GoalieDetailPage() {
       );
       
       setEvents(allEvents);
-      setLoading(false);
     };
     
     loadData();

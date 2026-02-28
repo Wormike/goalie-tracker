@@ -38,7 +38,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     } else {
       setMode("create");
     }
-  }, [competitions.length]);
+  }, [competitions]);
 
   // Don't render if loading or if onboarding is not needed
   if (isLoading || !needsOnboarding) {

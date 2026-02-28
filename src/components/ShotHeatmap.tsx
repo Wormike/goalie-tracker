@@ -202,7 +202,14 @@ function calculateHeatmap(
     [key: string]: { total: number; goals: number };
   } = {};
 
-  events.forEach((e) => {
+  const filteredEvents =
+    filter === "all"
+      ? events
+      : events.filter((e) =>
+          filter === "saves" ? e.result === "save" : e.result === "goal"
+        );
+
+  filteredEvents.forEach((e) => {
     if (!e.shotPosition) return;
     const gridX =
       Math.floor(e.shotPosition.x / gridSize) * gridSize + gridSize / 2;
@@ -231,6 +238,7 @@ function calculateHeatmap(
     };
   });
 }
+
 
 
 

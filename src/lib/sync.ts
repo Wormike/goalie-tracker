@@ -9,7 +9,7 @@
 
 import { supabase, isSupabaseConfigured } from "./supabaseClient";
 import * as storage from "./storage";
-import type { Goalie, Match, GoalieEvent, Competition, Season, Team, MatchStatus, MatchType, SituationType } from "./types";
+import type { Goalie, Match, GoalieEvent, MatchStatus, MatchType, SituationType, GoalZone } from "./types";
 import { v4 as uuidv4 } from "uuid";
 import { normalizeMatchStatus } from "./utils/matchStatus";
 
@@ -642,7 +642,7 @@ export async function downloadFromSupabase(): Promise<SyncResult> {
           goalPosition: e.goal_x != null && e.goal_y != null ? {
             x: e.goal_x,
             y: e.goal_y,
-            zone: (e.goal_zone || "middle_center") as any,
+            zone: (e.goal_zone || "middle_center") as GoalZone,
           } : undefined,
           shotTarget: e.shot_target || undefined,
           shotType: e.shot_type || undefined,

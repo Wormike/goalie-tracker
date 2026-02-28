@@ -125,7 +125,7 @@ async function fetchAllMatchesForCompetition(
         }
       });
       
-    } catch (error) {
+    } catch {
       // Continue to next round
     }
   }

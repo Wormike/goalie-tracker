@@ -6,6 +6,7 @@ import { ToastProvider } from "@/contexts/ToastContext";
 import { ToastViewport } from "@/components/Toast";
 import { OnboardingWizard } from "@/components/OnboardingWizard";
 import { runMigrations } from "@/lib/migration";
+import { ensurePresetsExist, ensureSeasonsExist } from "@/lib/dataService";
 
 interface ClientProvidersProps {
   children: ReactNode;
@@ -20,8 +21,13 @@ export function ClientProviders({ children }: ClientProvidersProps) {
 
   // Run migrations before rendering the app
   useEffect(() => {
-    runMigrations();
-    setMigrationComplete(true);
+    const run = async () => {
+      runMigrations();
+      await ensureSeasonsExist();
+      await ensurePresetsExist();
+      setMigrationComplete(true);
+    };
+    run();
   }, []);
 
   // Wait for migrations to complete before rendering

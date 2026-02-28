@@ -1,6 +1,6 @@
 "use client";
 
-import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import { emitToast } from "@/contexts/ToastContext";
 import { generateId, isUuid } from "@/lib/utils/uuid";
 import type { Competition, Goalie, GoalieEvent, GoalieSeasonStats, Match } from "@/lib/types";
@@ -10,6 +10,7 @@ import * as goaliesRepo from "@/lib/repositories/goalies";
 import * as eventsRepo from "@/lib/repositories/events";
 import type { CreateEventPayload } from "@/lib/repositories/events";
 import * as competitionsRepo from "@/lib/repositories/competitions";
+import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 
 const ID_MAP_KEY = "goalie-tracker-id-map";
 
@@ -254,7 +255,8 @@ export const dataService = {
     if (isSupabaseConfigured()) {
       let saved: GoalieEvent | null = null;
       if (isUuid(normalized.id)) {
-        const { match_id: _matchId, ...updatePayload } = payload;
+        const updatePayload = { ...payload };
+        delete updatePayload.match_id;
         saved = await eventsRepo.updateEvent(normalized.id, updatePayload);
       }
       if (!saved) {
@@ -326,4 +328,122 @@ export const dataService = {
     return storage.calculateGoalieStats(goalieId, seasonId, competitionId, events, matches);
   },
 };
+
+type SeedSeason = {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  startYear: number;
+  endYear: number;
+  isCurrent: boolean;
+};
+
+const SEASON_PRESETS: SeedSeason[] = [
+  {
+    id: "2024-2025",
+    name: "2024/2025",
+    startDate: "2024-09-01",
+    endDate: "2025-06-30",
+    startYear: 2024,
+    endYear: 2025,
+    isCurrent: false,
+  },
+  {
+    id: "2025-2026",
+    name: "2025/2026",
+    startDate: "2025-09-01",
+    endDate: "2026-06-30",
+    startYear: 2025,
+    endYear: 2026,
+    isCurrent: true,
+  },
+];
+
+export async function ensureSeasonsExist(): Promise<void> {
+  if (isSupabaseConfigured() && supabase) {
+    const rows = SEASON_PRESETS.map((s) => ({
+      id: s.id,
+      name: s.name,
+      start_date: s.startDate,
+      end_date: s.endDate,
+      start_year: s.startYear,
+      end_year: s.endYear,
+      is_current: s.isCurrent,
+    }));
+    const { error } = await supabase.from("seasons").upsert(rows, { onConflict: "id" });
+    if (error) {
+      console.error("[seed] Failed to ensure seasons:", error.message);
+    }
+    return;
+  }
+
+  SEASON_PRESETS.forEach((s) => {
+    const existing = storage.getSeasonById(s.id);
+    if (!existing) {
+      storage.saveSeason({
+        id: s.id,
+        name: s.name,
+        startDate: s.startDate,
+        endDate: s.endDate,
+        startYear: s.startYear,
+        endYear: s.endYear,
+        isActive: s.isCurrent,
+        isCurrent: s.isCurrent,
+      });
+    }
+  });
+}
+
+export async function ensurePresetsExist(): Promise<void> {
+  if (isSupabaseConfigured()) {
+    for (const preset of COMPETITION_PRESETS) {
+      const existing = preset.externalId
+        ? await competitionsRepo.findCompetitionByExternalId(preset.externalId)
+        : null;
+      if (!existing) {
+        await competitionsRepo.createCompetition({
+          name: preset.name,
+          category: preset.name,
+          seasonId: preset.season,
+          externalId: preset.externalId,
+          source: "ceskyhokej",
+          standingsUrl: preset.standingsUrl,
+        });
+      }
+    }
+    return;
+  }
+
+  const local = storage.getCompetitions();
+  for (const preset of COMPETITION_PRESETS) {
+    const byExternalId = preset.externalId
+      ? local.find((c) => c.externalId === preset.externalId)
+      : undefined;
+    if (byExternalId) continue;
+
+    const byName = local.find((c) => c.name.toLowerCase() === preset.name.toLowerCase());
+    if (byName) {
+      storage.saveCompetition({
+        ...byName,
+        externalId: preset.externalId,
+        source: "ceskyhokej",
+        seasonId: preset.season,
+        standingsUrl: preset.standingsUrl,
+      });
+      continue;
+    }
+
+    storage.saveCompetition({
+      id: preset.id,
+      name: preset.name,
+      category: preset.name,
+      seasonId: preset.season,
+      externalId: preset.externalId,
+      source: "ceskyhokej",
+      standingsUrl: preset.standingsUrl,
+      createdAt: new Date().toISOString(),
+    });
+  }
+}
 

@@ -112,6 +112,33 @@ export async function getCompetitionById(id: string): Promise<Competition | null
 }
 
 /**
+ * Find competition by external ID
+ */
+export async function findCompetitionByExternalId(externalId: string): Promise<Competition | null> {
+  if (!isSupabaseConfigured() || !supabase || !externalId) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("competitions")
+      .select("*")
+      .eq("external_id", externalId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[competitions] Error fetching by external_id:", error.message);
+      return null;
+    }
+
+    return data ? dbCompetitionToApp(data) : null;
+  } catch (err) {
+    console.error("[competitions] Unexpected error:", err);
+    return null;
+  }
+}
+
+/**
  * Get competitions by season
  */
 export async function getCompetitionsBySeason(seasonId: string): Promise<Competition[]> {

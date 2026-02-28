@@ -60,7 +60,7 @@ export function ExportImportModal({
       URL.revokeObjectURL(url);
       setExportSuccess(true);
       setTimeout(() => setExportSuccess(false), 3000);
-    } catch (err) {
+    } catch {
       setError("Chyba při exportu dat");
     }
   };
@@ -139,7 +139,6 @@ export function ExportImportModal({
     if (result.success) {
       if (importBundle.competitions?.length) {
         for (const competition of importBundle.competitions) {
-          // eslint-disable-next-line no-await-in-loop
           await dataService.saveCompetition(competition);
         }
       }

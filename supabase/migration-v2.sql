@@ -38,3 +38,4 @@ CREATE INDEX IF NOT EXISTS idx_matches_away_team ON matches(away_team_id);
 -- 9. Indexy pro nové sloupce
 CREATE INDEX IF NOT EXISTS idx_matches_season_id ON matches(season_id);
 
+

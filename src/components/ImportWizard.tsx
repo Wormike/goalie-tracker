@@ -15,10 +15,17 @@ import {
   findExternalMapping,
 } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
-import { createMatch as createMatchSupabase } from "@/lib/repositories/matches";
+import {
+  createMatch as createMatchSupabase,
+  findMatchByExternalId,
+  updateMatch,
+} from "@/lib/repositories/matches";
 import { Select } from "@/components/ui/Select";
 import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
+import { findCompetitionByExternalId } from "@/lib/repositories/competitions";
+import { findOrCreateTeam } from "@/lib/repositories/teams";
+import { isUuid } from "@/lib/utils/uuid";
 
 interface ImportWizardProps {
   open: boolean;
@@ -28,50 +35,14 @@ interface ImportWizardProps {
 
 type Step = 0 | 1 | 2 | 3;
 
-// Helper function to map category name to competition name
-// e.g., "Liga mladších žáků \"B\" sk. 14" -> "Mladší žáci B"
-function mapCategoryToCompetitionName(categoryName: string): string {
-  // Remove quotes and normalize
-  const normalized = categoryName
-    .replace(/["']/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  
-  // Extract key parts: "Liga mladších žáků B sk. 14" -> "Mladší žáci B"
-  // Pattern: Liga [age] žáků [letter] sk. [number]
-  const match = normalized.match(/liga\s+(mladších|starších)\s+žáků\s+"?([AB])"?/i);
-  if (match) {
-    const age = match[1].toLowerCase();
-    const letter = match[2].toUpperCase();
-    const ageShort = age === "mladších" ? "Mladší" : "Starší";
-    return `${ageShort} žáci ${letter}`;
-  }
-  
-  // Fallback: try to extract from any pattern
-  const fallbackMatch = normalized.match(/(mladší|starší)\s*žáci?\s*([AB])?/i);
-  if (fallbackMatch) {
-    const age = fallbackMatch[1];
-    const letter = fallbackMatch[2] || "";
-    const ageCapitalized = age.charAt(0).toUpperCase() + age.slice(1);
-    return letter ? `${ageCapitalized} žáci ${letter.toUpperCase()}` : `${ageCapitalized} žáci`;
-  }
-  
-  // Last resort: return simplified version
-  return normalized
-    .replace(/^liga\s+/i, "")
-    .replace(/\s+sk\.\s*\d+.*$/i, "")
-    .trim();
-}
-
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
-  const { addCompetition, competitions: userCompetitions, setActiveCompetitionId } = useCompetitions();
+  const { competitions: userCompetitions } = useCompetitions();
   const [step, setStep] = useState<Step>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Step 0: Source selection
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
-  const [customCompetitionId, setCustomCompetitionId] = useState("");
 
   // Step 1: Mapping
   const [scrapedMatches, setScrapedMatches] = useState<Match[]>([]);
@@ -84,7 +55,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
     homeTeamId: "",
   });
   const [rememberMapping, setRememberMapping] = useState(true);
-  const [autoCreatedCompetition, setAutoCreatedCompetition] = useState<string | null>(null);
 
   // Step 2: Goalie selection
   const [goalies, setGoalies] = useState<Goalie[]>([]);
@@ -114,24 +84,31 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
         }
       }
+
+      if (!savedCompMapping && selectedPreset.externalId) {
+        const presetCompetition = userCompetitions.find(
+          (c) => c.externalId === selectedPreset.externalId
+        );
+        if (presetCompetition) {
+          setMappings((m) => ({ ...m, competitionId: presetCompetition.id }));
+        }
+      }
     }
-  }, [open, selectedPreset.id, userCompetitions]);
+  }, [open, selectedPreset.id, selectedPreset.externalId, userCompetitions]);
 
   if (!open) return null;
 
   const handleFetchMatches = async () => {
     setLoading(true);
     setError(null);
-    setAutoCreatedCompetition(null);
 
     try {
-      const compId = customCompetitionId || selectedPreset.id;
       const response = await fetch("/api/matches/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           season: selectedPreset.season,
-          category: compId,
+          category: selectedPreset.id,
         }),
       });
 
@@ -140,37 +117,22 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       if (data.success && data.matches && data.matches.length > 0) {
         setScrapedMatches(data.matches);
         
-        // Get category from first match (all matches should have same category)
-        const firstMatch = data.matches[0] as Match;
-        const categoryName = firstMatch.category || selectedPreset.name;
-        
-        // Map category name to competition name
-        const competitionName = mapCategoryToCompetitionName(categoryName);
-        
-        // Check if competition with this name already exists
-        let existingCompetition: Competition | null =
-          userCompetitions.find(
-            (c) => c.name.toLowerCase() === competitionName.toLowerCase()
-          ) || null;
-        
-        // If not found, create new competition automatically
-        if (!existingCompetition) {
-          existingCompetition = await addCompetition({
-            name: competitionName,
-            category: categoryName,
-            seasonId: selectedPreset.season,
-            standingsUrl: selectedPreset.standingsUrl,
-            source: "manual",
-          });
-          if (existingCompetition) {
-            setAutoCreatedCompetition(existingCompetition.id);
+        let existingCompetition: Competition | null = null;
+        if (selectedPreset.externalId) {
+          if (isSupabaseConfigured()) {
+            existingCompetition = await findCompetitionByExternalId(selectedPreset.externalId);
+          } else {
+            existingCompetition =
+              userCompetitions.find((c) => c.externalId === selectedPreset.externalId) || null;
           }
         }
-        
-        // Set the competition mapping
-        if (existingCompetition) {
-          setMappings((m) => ({ ...m, competitionId: existingCompetition.id }));
+
+        if (!existingCompetition) {
+          setError("Soutěž nebyla nalezena. Zkuste obnovit stránku.");
+          return;
         }
+
+        setMappings((m) => ({ ...m, competitionId: existingCompetition.id }));
         
         // Pre-select all upcoming matches
         const upcomingIds = new Set<string>(
@@ -183,7 +145,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       } else {
         setError(data.error || "Nepodařilo se načíst zápasy");
       }
-    } catch (err) {
+    } catch {
       setError("Chyba při komunikaci se serverem");
     } finally {
       setLoading(false);
@@ -197,7 +159,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         id: `mapping-${Date.now()}`,
         source: "ceskyhokej",
         externalType: "competition",
-        externalId: customCompetitionId || selectedPreset.id,
+        externalId: selectedPreset.id,
         externalName: selectedPreset.name,
         internalId: mappings.competitionId,
         createdAt: new Date().toISOString(),
@@ -227,12 +189,22 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         // Save to Supabase - process sequentially to avoid race conditions
         for (const match of selectedMatches) {
           try {
+            const homeTeamName = match.home || match.homeTeamName || "HC Slovan Ústí n.L.";
+            const awayTeamName = match.away || match.awayTeamName || "Hosté";
+            const mappedHomeId =
+              mappings.homeTeamId && isUuid(mappings.homeTeamId)
+                ? mappings.homeTeamId
+                : null;
+            const homeTeamId = mappedHomeId || (await findOrCreateTeam(homeTeamName));
+            const awayTeamId = await findOrCreateTeam(awayTeamName);
+
             const enrichedMatch: Match = {
               ...match,
               goalieId: selectedGoalieId || undefined,
               competitionId: mappings.competitionId || undefined,
               competitionIdManuallySet: false, // Imported matches are not manually set
-              homeTeamId: mappings.homeTeamId || undefined,
+              homeTeamId: homeTeamId || undefined,
+              awayTeamId: awayTeamId || undefined,
             };
             
             // Determine status based on match completion
@@ -245,13 +217,12 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
             
             const payload = {
               home_team_id: enrichedMatch.homeTeamId || undefined,
-              home_team_name: enrichedMatch.home || enrichedMatch.homeTeamName || "HC Slovan Ústí n.L.",
-              away_team_name: enrichedMatch.away || enrichedMatch.awayTeamName || "Hosté",
+              home_team_name: homeTeamName,
+              away_team_id: enrichedMatch.awayTeamId || undefined,
+              away_team_name: awayTeamName,
               datetime: enrichedMatch.datetime,
-              // Note: competition (TEXT) field is not in production schema, skip it
-              // Category is stored in app Match type and used for filtering/matching
               competition_id: enrichedMatch.competitionId || undefined, // FK to competitions table
-              season_id: enrichedMatch.seasonId || "2025-2026", // Keep as string, Supabase will handle it
+              season_id: enrichedMatch.seasonId || "2025-2026",
               venue: enrichedMatch.venue || undefined,
               match_type: (enrichedMatch.matchType || "league") as "friendly" | "league" | "tournament" | "playoff" | "cup",
               status: matchStatus,
@@ -262,6 +233,27 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
               external_id: enrichedMatch.externalId || undefined,
               external_url: enrichedMatch.externalUrl || undefined,
             };
+
+            const existingMatch = enrichedMatch.externalId
+              ? await findMatchByExternalId(enrichedMatch.externalId)
+              : null;
+
+            if (existingMatch) {
+              const updatePayload = {
+                ...payload,
+                goalie_id: existingMatch.goalieId ? undefined : payload.goalie_id,
+                status: existingMatch.status === "completed" ? undefined : payload.status,
+                manual_shots: undefined,
+                manual_saves: undefined,
+                manual_goals_against: undefined,
+              };
+              const updated = await updateMatch(existingMatch.id, updatePayload);
+              if (updated) {
+                createdMatches.push(updated);
+                importedCount++;
+                continue;
+              }
+            }
             
             const created = await createMatchSupabase(payload);
             if (created) {
@@ -305,11 +297,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         });
       }
 
-      // Set active competition if a new one was created
-      if (autoCreatedCompetition) {
-        setActiveCompetitionId(autoCreatedCompetition);
-      }
-
       onComplete(importedCount);
       
       // Optionally open the first upcoming match for tracking
@@ -324,7 +311,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       }
       
       onClose();
-    } catch (err) {
+    } catch {
       setError("Chyba při importu");
     } finally {
       setLoading(false);
@@ -417,19 +404,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 ))}
               </div>
 
-              <details className="rounded-lg bg-slate-800/50 p-3">
-                <summary className="cursor-pointer text-xs text-slate-400">
-                  Vlastní klíč soutěže
-                </summary>
-                <input
-                  type="text"
-                  placeholder="např. starsi-zaci-a"
-                  value={customCompetitionId}
-                  onChange={(e) => setCustomCompetitionId(e.target.value)}
-                  className="mt-2 w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
-                />
-              </details>
-
               <div className="rounded-lg bg-slate-800/50 p-3 text-xs text-slate-400">
                 <p>
                   📍 Zdroj: <span className="text-slate-200">zapasy.ceskyhokej.cz</span>
@@ -448,14 +422,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 Nalezeno <span className="text-accentPrimary font-bold">{scrapedMatches.length}</span> zápasů.
                 Přiřaďte je k lokální soutěži a týmu.
               </p>
-
-              {autoCreatedCompetition && (
-                <div className="rounded-lg bg-accentSuccess/10 border border-accentSuccess/20 p-3 text-sm">
-                  <p className="text-accentSuccess font-medium">
-                    ✓ Soutěž "{userCompetitions.find(c => c.id === autoCreatedCompetition)?.name}" byla automaticky vytvořena
-                  </p>
-                </div>
-              )}
 
               <Select
                 label="Přiřadit k soutěži"
