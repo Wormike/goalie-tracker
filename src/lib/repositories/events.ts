@@ -310,10 +310,11 @@ export async function updateEvent(
     if (payload.save_type !== undefined) updatePayload.save_type = payload.save_type || null;
     if (payload.goal_type !== undefined) updatePayload.goal_type = payload.goal_type || null;
     if (payload.situation !== undefined) {
-      let situation = payload.situation;
-      if (situation === "powerplay") situation = "pp";
-      if (situation === "shorthanded") situation = "sh";
-      updatePayload.situation = situation as DbGoalieEvent["situation"];
+      const rawSituation = payload.situation as SituationType;
+      let situation: DbGoalieEvent["situation"] = rawSituation as DbGoalieEvent["situation"];
+      if (rawSituation === "powerplay") situation = "pp";
+      if (rawSituation === "shorthanded") situation = "sh";
+      updatePayload.situation = situation;
     }
     if (payload.is_rebound !== undefined) updatePayload.is_rebound = payload.is_rebound ?? null;
     if (payload.is_screened !== undefined) updatePayload.is_screened = payload.is_screened ?? null;

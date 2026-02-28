@@ -255,8 +255,7 @@ export const dataService = {
     if (isSupabaseConfigured()) {
       let saved: GoalieEvent | null = null;
       if (isUuid(normalized.id)) {
-        const updatePayload = { ...payload };
-        delete updatePayload.match_id;
+        const { match_id: _matchId, ...updatePayload } = payload;
         saved = await eventsRepo.updateEvent(normalized.id, updatePayload);
       }
       if (!saved) {
