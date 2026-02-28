@@ -258,7 +258,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       if (data.success && data.matches && data.matches.length > 0) {
         setScrapedMatches(data.matches);
         
-        let existingCompetition: Competition | null = selectedCompetition;
+        let existingCompetition: Competition | null = selectedCompetition ?? null;
         if (leagueFilter) {
           if (isSupabaseConfigured()) {
             existingCompetition = await findCompetitionByLeagueFilter(leagueFilter);
@@ -330,6 +330,9 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
   const handleConfirmMapping = () => {
     // Save mapping if requested
     if (rememberMapping && mappings.competitionId) {
+      const selectedCompetition = selectedCompetitionId
+        ? userCompetitions.find((c) => c.id === selectedCompetitionId)
+        : null;
       saveExternalMapping({
         id: `mapping-${Date.now()}`,
         source: "ceskyhokej",

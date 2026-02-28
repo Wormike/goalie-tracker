@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 
 interface DiscoveredCompetition {
   name: string;
@@ -14,13 +15,8 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function getMatchRows(html: string): cheerio.Cheerio<cheerio.Element> {
-  const $ = cheerio.load(html);
-  return $("table tbody tr, table tr");
-}
-
 function parseRows(
-  rows: cheerio.Cheerio<cheerio.Element>,
+  rows: cheerio.Cheerio<AnyNode>,
   $: cheerio.CheerioAPI,
   map: Map<string, DiscoveredCompetition>
 ): number {
