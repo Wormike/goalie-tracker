@@ -6,7 +6,10 @@ export interface CompetitionPreset {
   name: string;
   season: string;
   externalId?: string;
+  leagueFilter?: string;
   standingsUrl?: string;
+  parentId?: string;
+  phase?: "basic" | "playoff" | "placement";
 }
 
 export const COMPETITION_PRESETS: CompetitionPreset[] = [
@@ -15,6 +18,7 @@ export const COMPETITION_PRESETS: CompetitionPreset[] = [
     name: 'Liga starších žáků "A" sk. 2', 
     season: "2025-2026",
     externalId: "Z8",
+    leagueFilter: "league_115",
     standingsUrl: "https://www.ceskyhokej.cz/competition/standings/24"
   },
   { 
@@ -22,6 +26,7 @@ export const COMPETITION_PRESETS: CompetitionPreset[] = [
     name: 'Liga starších žáků "B" sk. 10', 
     season: "2025-2026",
     externalId: "Z7",
+    leagueFilter: "league_116",
     standingsUrl: "https://www.ceskyhokej.cz/competition/standings/26"
   },
   { 
@@ -29,6 +34,7 @@ export const COMPETITION_PRESETS: CompetitionPreset[] = [
     name: 'Liga mladších žáků "A" sk. 4', 
     season: "2025-2026",
     externalId: "Z6",
+    leagueFilter: "league_117",
     standingsUrl: "https://www.ceskyhokej.cz/competition/standings/25"
   },
   { 
@@ -36,6 +42,7 @@ export const COMPETITION_PRESETS: CompetitionPreset[] = [
     name: 'Liga mladších žáků "B" sk. 14', 
     season: "2025-2026",
     externalId: "Z5",
+    leagueFilter: "league_118",
     standingsUrl: "https://www.ceskyhokej.cz/competition/standings/27"
   },
 ];

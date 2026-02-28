@@ -16,7 +16,7 @@ import { StandingsButton } from "@/components/StandingsLink";
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
 import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
-import { findCompetitionByExternalId } from "@/lib/repositories/competitions";
+import { findCompetitionByExternalId, findCompetitionByLeagueFilter } from "@/lib/repositories/competitions";
 import {
   createMatch as createMatchSupabase,
   findMatchByExternalId,
@@ -260,12 +260,15 @@ export default function HomePage() {
     setImporting(true);
     setImportResult(null);
     try {
+      const preset =
+        COMPETITION_PRESETS.find((p) => p.id === importConfig.category) || selectedPreset;
       const response = await fetch("/api/matches/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           season: importConfig.season,
           category: importConfig.category || undefined,
+          leagueFilter: preset.leagueFilter || undefined,
         }),
       });
 
@@ -276,7 +279,15 @@ export default function HomePage() {
           COMPETITION_PRESETS.find((p) => p.id === importConfig.category) || selectedPreset;
 
         let competitionId: string | undefined;
-        if (importPreset.externalId) {
+        if (importPreset.leagueFilter) {
+          if (isSupabaseConfigured()) {
+            competitionId = (await findCompetitionByLeagueFilter(importPreset.leagueFilter))?.id;
+          } else {
+            competitionId = userCompetitions.find(
+              (c) => c.leagueFilter === importPreset.leagueFilter
+            )?.id;
+          }
+        } else if (importPreset.externalId) {
           if (isSupabaseConfigured()) {
             competitionId = (await findCompetitionByExternalId(importPreset.externalId))?.id;
           } else {

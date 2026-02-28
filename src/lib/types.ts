@@ -141,6 +141,8 @@ export interface Competition {
   category: string; // "7. třída"
   seasonId: string;
   externalId?: string; // competitionId ze svazu
+  leagueFilter?: string; // league_XXX filter for zapasy.ceskyhokej.cz
+  parentId?: string; // Parent competition ID (e.g., base -> playoff)
   source?: "ceskyhokej" | "manual";
   standingsUrl?: string; // External URL to standings on ceskyhokej.cz
   createdAt?: string;

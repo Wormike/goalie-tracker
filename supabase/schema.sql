@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS competitions (
   category TEXT,                 -- "7. třída"
   season_id TEXT REFERENCES seasons(id),
   external_id TEXT,              -- competitionId ze svazu
+  league_filter TEXT,            -- league_XXX filter for zapasy.ceskyhokej.cz
+  parent_id UUID REFERENCES competitions(id),
   source TEXT DEFAULT 'manual',  -- "ceskyhokej" | "manual"
   standings_url TEXT,            -- URL na tabulku
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -68,6 +70,7 @@ CREATE TABLE IF NOT EXISTS competitions (
 
 CREATE INDEX IF NOT EXISTS idx_competitions_season ON competitions(season_id);
 CREATE INDEX IF NOT EXISTS idx_competitions_external_id ON competitions(external_id);
+CREATE INDEX IF NOT EXISTS idx_competitions_league_filter ON competitions(league_filter);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_competitions_external_id_unique
   ON competitions(external_id) WHERE external_id IS NOT NULL;
 

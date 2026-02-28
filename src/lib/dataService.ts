@@ -406,6 +406,8 @@ export async function ensurePresetsExist(): Promise<void> {
           category: preset.name,
           seasonId: preset.season,
           externalId: preset.externalId,
+          leagueFilter: preset.leagueFilter,
+          parentId: preset.parentId,
           source: "ceskyhokej",
           standingsUrl: preset.standingsUrl,
         });
@@ -439,6 +441,8 @@ export async function ensurePresetsExist(): Promise<void> {
       category: preset.name,
       seasonId: preset.season,
       externalId: preset.externalId,
+      leagueFilter: preset.leagueFilter,
+      parentId: preset.parentId,
       source: "ceskyhokej",
       standingsUrl: preset.standingsUrl,
       createdAt: new Date().toISOString(),

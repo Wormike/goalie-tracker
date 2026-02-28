@@ -16,6 +16,8 @@ export interface DbCompetition {
   category: string | null;
   season_id: string | null;
   external_id: string | null;
+  league_filter: string | null;
+  parent_id: string | null;
   source: string | null;
   standings_url: string | null;
   created_at: string;
@@ -33,6 +35,8 @@ export function dbCompetitionToApp(db: DbCompetition): Competition {
     category: db.category || "",
     seasonId: db.season_id || "",
     externalId: db.external_id || undefined,
+    leagueFilter: db.league_filter || undefined,
+    parentId: db.parent_id || undefined,
     source: (db.source as Competition["source"]) || "manual",
     standingsUrl: db.standings_url || undefined,
     createdAt: db.created_at,
@@ -47,6 +51,8 @@ export function appCompetitionToDbPayload(comp: Partial<Competition>): Partial<D
   if (comp.category !== undefined) payload.category = comp.category || null;
   if (comp.seasonId !== undefined) payload.season_id = comp.seasonId || null;
   if (comp.externalId !== undefined) payload.external_id = comp.externalId || null;
+  if (comp.leagueFilter !== undefined) payload.league_filter = comp.leagueFilter || null;
+  if (comp.parentId !== undefined) payload.parent_id = comp.parentId || null;
   if (comp.source !== undefined) payload.source = comp.source || "manual";
   if (comp.standingsUrl !== undefined) payload.standings_url = comp.standingsUrl || null;
 
@@ -128,6 +134,33 @@ export async function findCompetitionByExternalId(externalId: string): Promise<C
 
     if (error) {
       console.error("[competitions] Error fetching by external_id:", error.message);
+      return null;
+    }
+
+    return data ? dbCompetitionToApp(data) : null;
+  } catch (err) {
+    console.error("[competitions] Unexpected error:", err);
+    return null;
+  }
+}
+
+/**
+ * Find competition by league filter
+ */
+export async function findCompetitionByLeagueFilter(leagueFilter: string): Promise<Competition | null> {
+  if (!isSupabaseConfigured() || !supabase || !leagueFilter) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("competitions")
+      .select("*")
+      .eq("league_filter", leagueFilter)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[competitions] Error fetching by league_filter:", error.message);
       return null;
     }
 

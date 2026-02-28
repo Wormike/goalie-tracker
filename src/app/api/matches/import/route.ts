@@ -156,22 +156,18 @@ function getCategoryFromText(text: string): CategoryConfig | null {
   );
 }
 
-async function scrapeZapasyCeskyhokej(categorySlug?: CategoryConfig["slug"], season = "2025-2026"): Promise<ScrapedMatch[]> {
+async function scrapeFromUrl(
+  url: string,
+  categorySlug?: CategoryConfig["slug"],
+  season = "2025-2026"
+): Promise<ScrapedMatch[]> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
     const seasonStr = season || "2025-2026";
     const startYear = parseInt(seasonStr.slice(0, 4), 10) || 2025;
-    const filterSeason = String(startYear);
-
-    // Prefer a pre-filtered URL per category (whole season for Slovan Ústí in given league).
-    const filterPreset = categorySlug ? CATEGORY_FILTERS[categorySlug] : null;
-    const filteredUrl = filterPreset
-      ? `https://zapasy.ceskyhokej.cz/seznam-zapasu?filter%5Bseason%5D=${filterSeason}&filter%5BdateRange%5D=&filter%5BmanagingAuthorities%5D=all&filter%5Bregion%5D=${filterPreset.region || "6"}&filter%5Bteam%5D=${filterPreset.team}&filter%5BtimeShortcut%5D=this-season&filter%5Bleague%5D=${filterPreset.league}&filter%5Bnumber%5D=&filter%5Bstadium%5D=all&filter%5Bstate%5D=&filter%5BteamType%5D=all&filter%5Bsort%5D=&filter%5Bdirection%5D=ASC`
-      : "https://zapasy.ceskyhokej.cz/seznam-zapasu";
-
-    const response = await fetch(filteredUrl, {
+    const response = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -195,7 +191,7 @@ async function scrapeZapasyCeskyhokej(categorySlug?: CategoryConfig["slug"], sea
     const now = new Date();
     // If we used a pre-filtered URL (all configured categories have it),
     // load the whole season based on the season parameter; otherwise keep 1w back / 3w forward.
-    const useFullSeason = Boolean(filterPreset);
+    const useFullSeason = url.includes("filter%5Bleague%5D=") || url.includes("filter[league]=");
     const fromDate = useFullSeason
       ? new Date(`${startYear}-01-01`)
       : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -236,7 +232,7 @@ async function scrapeZapasyCeskyhokej(categorySlug?: CategoryConfig["slug"], sea
         ? CATEGORY_CONFIGS.find((cfg) => cfg.slug === categorySlug) || null
         : null;
 
-      // Respect requested category; if no category provided, use detected or fallback to raw competitionText
+      // Respect requested category when provided; otherwise accept whatever the page returns
       if (requestedCategory && categoryFromText && requestedCategory.slug !== categoryFromText.slug) {
         return;
       }
@@ -301,6 +297,31 @@ async function scrapeZapasyCeskyhokej(categorySlug?: CategoryConfig["slug"], sea
   }
 }
 
+async function scrapeZapasyCeskyhokej(
+  categorySlug?: CategoryConfig["slug"],
+  season = "2025-2026"
+): Promise<ScrapedMatch[]> {
+  const seasonStr = season || "2025-2026";
+  const startYear = parseInt(seasonStr.slice(0, 4), 10) || 2025;
+  const filterSeason = String(startYear);
+
+  // Prefer a pre-filtered URL per category (whole season for Slovan Ústí in given league).
+  const filterPreset = categorySlug ? CATEGORY_FILTERS[categorySlug] : null;
+  const filteredUrl = filterPreset
+    ? `https://zapasy.ceskyhokej.cz/seznam-zapasu?filter%5Bseason%5D=${filterSeason}&filter%5BdateRange%5D=&filter%5BmanagingAuthorities%5D=all&filter%5Bregion%5D=${filterPreset.region || "6"}&filter%5Bteam%5D=${filterPreset.team}&filter%5BtimeShortcut%5D=this-season&filter%5Bleague%5D=${filterPreset.league}&filter%5Bnumber%5D=&filter%5Bstadium%5D=all&filter%5Bstate%5D=&filter%5BteamType%5D=all&filter%5Bsort%5D=&filter%5Bdirection%5D=ASC`
+    : "https://zapasy.ceskyhokej.cz/seznam-zapasu";
+
+  return scrapeFromUrl(filteredUrl, categorySlug, season);
+}
+
+async function scrapeWithLeagueId(leagueId: string, season = "2025-2026"): Promise<ScrapedMatch[]> {
+  const seasonStr = season || "2025-2026";
+  const startYear = parseInt(seasonStr.slice(0, 4), 10) || 2025;
+  const filterSeason = String(startYear);
+  const url = `https://zapasy.ceskyhokej.cz/seznam-zapasu?filter%5Bseason%5D=${filterSeason}&filter%5BdateRange%5D=&filter%5BmanagingAuthorities%5D=all&filter%5Bregion%5D=6&filter%5Bteam%5D=1710&filter%5BtimeShortcut%5D=this-season&filter%5Bleague%5D=${leagueId}&filter%5Bnumber%5D=&filter%5Bstadium%5D=all&filter%5Bstate%5D=&filter%5BteamType%5D=all&filter%5Bsort%5D=&filter%5Bdirection%5D=ASC`;
+  return scrapeFromUrl(url, undefined, season);
+}
+
 export async function POST(request: NextRequest) {
   const start = Date.now();
 
@@ -308,8 +329,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const season = body.season || "2025-2026";
     const categorySlug: CategoryConfig["slug"] | undefined = body.category;
+    const leagueFilter: string | undefined = body.leagueFilter;
+    const customUrl: string | undefined = body.customUrl;
 
-    const scrapedMatches = await scrapeZapasyCeskyhokej(categorySlug, season);
+    let scrapedMatches: ScrapedMatch[] = [];
+    if (customUrl) {
+      scrapedMatches = await scrapeFromUrl(customUrl, undefined, season);
+    } else if (leagueFilter) {
+      scrapedMatches = await scrapeWithLeagueId(leagueFilter, season);
+    } else {
+      scrapedMatches = await scrapeZapasyCeskyhokej(categorySlug, season);
+    }
 
     // Deduplicate by externalId
     const uniqueMatches = Array.from(
@@ -357,5 +387,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const season = request.nextUrl.searchParams.get("season") || "2025-2026";
   const category = request.nextUrl.searchParams.get("category") as CategoryConfig["slug"] | null;
-  return POST({ json: async () => ({ season, category }) } as NextRequest);
+  const leagueFilter = request.nextUrl.searchParams.get("leagueFilter") || undefined;
+  const customUrl = request.nextUrl.searchParams.get("customUrl") || undefined;
+  return POST({ json: async () => ({ season, category, leagueFilter, customUrl }) } as NextRequest);
 }

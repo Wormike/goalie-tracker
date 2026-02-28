@@ -253,6 +253,8 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           category: c.category || null,
           season_id: c.seasonId || null,
           external_id: c.externalId || null,
+          league_filter: c.leagueFilter || null,
+          parent_id: c.parentId || null,
           source: c.source || "manual",
           standings_url: c.standingsUrl || null,
         };

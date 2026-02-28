@@ -74,6 +74,8 @@ const DEFAULT_COMPETITIONS: Competition[] = COMPETITION_PRESETS.map((preset) => 
   category: preset.name,
   seasonId: preset.season,
   externalId: preset.externalId,
+  leagueFilter: preset.leagueFilter,
+  parentId: preset.parentId,
   source: "ceskyhokej",
   standingsUrl: preset.standingsUrl,
 }));
