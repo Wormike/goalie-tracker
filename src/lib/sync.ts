@@ -250,6 +250,8 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         return {
           id: finalId,
           name: c.name,
+          display_name: c.displayName || null,
+          abbreviation: c.abbreviation || null,
           category: c.category || null,
           season_id: c.seasonId || null,
           external_id: c.externalId || null,

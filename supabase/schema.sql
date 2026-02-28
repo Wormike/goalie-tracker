@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS seasons (
 CREATE TABLE IF NOT EXISTS competitions (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   name TEXT NOT NULL,            -- "Liga starších žáků A – Ústecká"
+  display_name TEXT,             -- Custom label for UI
+  abbreviation TEXT,             -- Abbreviation from zapasy.ceskyhokej.cz
   category TEXT,                 -- "7. třída"
   season_id TEXT REFERENCES seasons(id),
   external_id TEXT,              -- competitionId ze svazu
@@ -71,6 +73,7 @@ CREATE TABLE IF NOT EXISTS competitions (
 CREATE INDEX IF NOT EXISTS idx_competitions_season ON competitions(season_id);
 CREATE INDEX IF NOT EXISTS idx_competitions_external_id ON competitions(external_id);
 CREATE INDEX IF NOT EXISTS idx_competitions_league_filter ON competitions(league_filter);
+CREATE INDEX IF NOT EXISTS idx_competitions_abbreviation ON competitions(abbreviation);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_competitions_external_id_unique
   ON competitions(external_id) WHERE external_id IS NOT NULL;
 

@@ -82,6 +82,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
 
   // Step 0: Source selection
   const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
+  const [selectedCompetitionId, setSelectedCompetitionId] = useState<string>("");
   const [customUrl, setCustomUrl] = useState("");
   const [customLeagueFilter, setCustomLeagueFilter] = useState("");
   const [customName, setCustomName] = useState("");
@@ -116,6 +117,28 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       setTeams(getTeams());
       setGoalies(getGoalies());
       
+      if (selectedCompetitionId) {
+        const selectedCompetition = userCompetitions.find(
+          (c) => c.id === selectedCompetitionId
+        );
+        const mappingKey =
+          selectedCompetition?.abbreviation || selectedCompetition?.name || "";
+        if (mappingKey) {
+          const savedCompMapping = findExternalMapping(
+            "ceskyhokej",
+            "competition",
+            mappingKey
+          );
+          if (savedCompMapping) {
+            const exists = userCompetitions.some((c) => c.id === savedCompMapping.internalId);
+            if (exists) {
+              setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
+            }
+          }
+        }
+        return;
+      }
+
       const mappingKey =
         selectedDynamic?.leagueId ||
         (customLeagueFilter.trim() ? customLeagueFilter.trim() : null) ||
@@ -159,7 +182,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         }
       }
     }
-  }, [open, selectedPreset.id, selectedPreset.externalId, selectedDynamic, customLeagueFilter, customUrl, userCompetitions]);
+  }, [open, selectedPreset.id, selectedPreset.externalId, selectedDynamic, customLeagueFilter, customUrl, selectedCompetitionId, userCompetitions]);
 
   if (!open) return null;
 
@@ -210,17 +233,23 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
     setError(null);
 
     try {
+      const selectedCompetition = selectedCompetitionId
+        ? userCompetitions.find((c) => c.id === selectedCompetitionId)
+        : null;
       const seasonId = resolveSeasonId();
-      const leagueFilter = resolveLeagueFilter();
-      const mappingKey = resolveMappingKey();
+      const leagueFilter = selectedCompetition ? null : resolveLeagueFilter();
+      const competitionAbbreviation =
+        selectedCompetition?.abbreviation ||
+        (selectedCompetition ? selectedCompetition.name : undefined);
       const response = await fetch("/api/matches/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          season: seasonId,
+          season: selectedCompetition?.seasonId || seasonId,
           category: selectedPreset.id,
           leagueFilter: leagueFilter || undefined,
           customUrl: customUrl.trim() || undefined,
+          competitionAbbreviation: competitionAbbreviation || undefined,
         }),
       });
 
@@ -229,7 +258,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       if (data.success && data.matches && data.matches.length > 0) {
         setScrapedMatches(data.matches);
         
-        let existingCompetition: Competition | null = null;
+        let existingCompetition: Competition | null = selectedCompetition;
         if (leagueFilter) {
           if (isSupabaseConfigured()) {
             existingCompetition = await findCompetitionByLeagueFilter(leagueFilter);
@@ -244,6 +273,10 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
             existingCompetition =
               userCompetitions.find((c) => c.externalId === selectedPreset.externalId) || null;
           }
+        }
+
+        if (!existingCompetition && selectedCompetition) {
+          existingCompetition = selectedCompetition;
         }
 
         if (!existingCompetition) {
@@ -301,8 +334,16 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         id: `mapping-${Date.now()}`,
         source: "ceskyhokej",
         externalType: "competition",
-        externalId: resolveMappingKey(),
-        externalName: selectedDynamic?.name || customName.trim() || selectedPreset.name,
+        externalId:
+          selectedCompetition?.abbreviation ||
+          selectedCompetition?.name ||
+          resolveMappingKey(),
+        externalName:
+          selectedCompetition?.displayName ||
+          selectedCompetition?.name ||
+          selectedDynamic?.name ||
+          customName.trim() ||
+          selectedPreset.name,
         internalId: mappings.competitionId,
         createdAt: new Date().toISOString(),
       });
@@ -530,6 +571,25 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 Vyberte soutěž pro import zápasů HC Slovan Ústí.
               </p>
 
+              <Select
+                label="Soutěž v aplikaci"
+                value={selectedCompetitionId}
+                onChange={(val) => {
+                  setSelectedCompetitionId(val);
+                  setSelectedDynamic(null);
+                  setCustomUrl("");
+                  setCustomLeagueFilter("");
+                  setCustomName("");
+                }}
+                options={[
+                  { value: "", label: "-- Vybrat soutěž --" },
+                  ...userCompetitions.map((c) => ({
+                    value: c.id,
+                    label: c.displayName || c.name,
+                  })),
+                ]}
+              />
+
               <div>
                 <div className="mb-2 text-xs font-semibold text-slate-400">
                   Základní část
@@ -540,6 +600,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                       key={preset.id}
                       onClick={() => {
                         setSelectedPreset(preset);
+                        setSelectedCompetitionId("");
                         setSelectedDynamic(null);
                         setCustomUrl("");
                         setCustomLeagueFilter("");

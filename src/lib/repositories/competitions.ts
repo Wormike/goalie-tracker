@@ -13,6 +13,8 @@ import { isUuid } from "@/lib/utils/uuid";
 export interface DbCompetition {
   id: string;
   name: string;
+  display_name: string | null;
+  abbreviation: string | null;
   category: string | null;
   season_id: string | null;
   external_id: string | null;
@@ -32,6 +34,8 @@ export function dbCompetitionToApp(db: DbCompetition): Competition {
   return {
     id: db.id,
     name: db.name,
+    displayName: db.display_name || undefined,
+    abbreviation: db.abbreviation || undefined,
     category: db.category || "",
     seasonId: db.season_id || "",
     externalId: db.external_id || undefined,
@@ -48,6 +52,8 @@ export function appCompetitionToDbPayload(comp: Partial<Competition>): Partial<D
   const payload: Record<string, unknown> = {};
 
   if (comp.name !== undefined) payload.name = comp.name;
+  if (comp.displayName !== undefined) payload.display_name = comp.displayName || null;
+  if (comp.abbreviation !== undefined) payload.abbreviation = comp.abbreviation || null;
   if (comp.category !== undefined) payload.category = comp.category || null;
   if (comp.seasonId !== undefined) payload.season_id = comp.seasonId || null;
   if (comp.externalId !== undefined) payload.external_id = comp.externalId || null;

@@ -403,6 +403,7 @@ export async function ensurePresetsExist(): Promise<void> {
       if (!existing) {
         await competitionsRepo.createCompetition({
           name: preset.name,
+          displayName: preset.name,
           category: preset.name,
           seasonId: preset.season,
           externalId: preset.externalId,
@@ -438,6 +439,7 @@ export async function ensurePresetsExist(): Promise<void> {
     storage.saveCompetition({
       id: preset.id,
       name: preset.name,
+      displayName: preset.name,
       category: preset.name,
       seasonId: preset.season,
       externalId: preset.externalId,

@@ -7,6 +7,7 @@ import {
   getGoalies,
   getGoalieById,
   getEventsByMatch as getEventsByMatchLocal,
+  getCurrentSeason,
 } from "@/lib/storage";
 import { dataService } from "@/lib/dataService";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -14,6 +15,7 @@ import { ManualStatsModal } from "@/components/ManualStatsModal";
 import { ImportWizard } from "@/components/ImportWizard";
 import { StandingsButton } from "@/components/StandingsLink";
 import { CompetitionSwitcher } from "@/components/CompetitionSwitcher";
+import { CompetitionPicker } from "@/components/CompetitionPicker";
 import { useCompetitions } from "@/lib/competitionService";
 import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 import { findCompetitionByExternalId, findCompetitionByLeagueFilter } from "@/lib/repositories/competitions";
@@ -26,7 +28,7 @@ import { findOrCreateTeam } from "@/lib/repositories/teams";
 
 export default function HomePage() {
   // User competition context
-  const { activeCompetition, competitions: userCompetitions } = useCompetitions();
+  const { activeCompetition, competitions: userCompetitions, addCompetition } = useCompetitions();
   const pathname = usePathname();
   
   const [matches, setMatches] = useState<Match[]>([]);
@@ -48,6 +50,7 @@ export default function HomePage() {
   const [importMode, setImportMode] = useState<"api" | "json">("api");
   const [jsonInput, setJsonInput] = useState("");
   const [showImportWizard, setShowImportWizard] = useState(false);
+  const [showCompetitionPicker, setShowCompetitionPicker] = useState(false);
   const [selectedMatchIds, setSelectedMatchIds] = useState<Set<string>>(new Set());
   const [showBulkMoveModal, setShowBulkMoveModal] = useState(false);
 
@@ -437,6 +440,23 @@ export default function HomePage() {
     }
   };
 
+  const handleAddCompetition = async (payload: {
+    name: string;
+    displayName: string;
+    abbreviation?: string;
+    source: "ceskyhokej" | "manual";
+  }) => {
+    const season = getCurrentSeason();
+    await addCompetition({
+      name: payload.name,
+      displayName: payload.displayName,
+      abbreviation: payload.abbreviation,
+      category: payload.name,
+      seasonId: season?.id || "",
+      source: payload.source,
+    });
+  };
+
   const handleManualStatsSave = async (data: {
     goalieId: string;
     shots: number;
@@ -563,6 +583,12 @@ export default function HomePage() {
         <h1 className="text-lg font-semibold">🥅 Goalie Tracker</h1>
         <div className="flex items-center gap-2">
           <CompetitionSwitcher />
+          <button
+            onClick={() => setShowCompetitionPicker(true)}
+            className="rounded-lg bg-slate-800/70 px-3 py-1.5 text-xs text-slate-200"
+          >
+            + Přidat soutěž
+          </button>
           <Link
             href="/goalies"
             className="rounded-lg bg-bgSurfaceSoft px-3 py-1.5 text-xs text-accentPrimary"
@@ -852,6 +878,12 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      <CompetitionPicker
+        open={showCompetitionPicker}
+        onClose={() => setShowCompetitionPicker(false)}
+        onSelect={handleAddCompetition}
+      />
 
       {/* Manual stats modal */}
       {editingMatch && (

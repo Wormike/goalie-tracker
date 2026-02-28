@@ -138,6 +138,8 @@ export interface Team {
 export interface Competition {
   id: string;
   name: string; // "Liga starších žáků A – Ústecká"
+  displayName?: string; // Alias shown in UI
+  abbreviation?: string; // Abbreviation from zapasy.ceskyhokej.cz (e.g., "LSŽ B")
   category: string; // "7. třída"
   seasonId: string;
   externalId?: string; // competitionId ze svazu

@@ -71,6 +71,7 @@ const DEFAULT_TEAM: Team = {
 const DEFAULT_COMPETITIONS: Competition[] = COMPETITION_PRESETS.map((preset) => ({
   id: preset.id,
   name: preset.name,
+  displayName: preset.name,
   category: preset.name,
   seasonId: preset.season,
   externalId: preset.externalId,

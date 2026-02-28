@@ -71,7 +71,9 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
         aria-haspopup="listbox"
       >
         <span className="max-w-[140px] truncate">
-          {activeCompetition === null ? "Nezařazené" : activeCompetition?.name || "Vyberte soutěž"}
+          {activeCompetition === null
+            ? "Nezařazené"
+            : activeCompetition?.displayName || activeCompetition?.name || "Vyberte soutěž"}
         </span>
         <ChevronIcon className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
@@ -115,7 +117,7 @@ export function CompetitionSwitcher({ className = "" }: CompetitionSwitcherProps
                   <span className="text-xs">✓</span>
                 )}
                 <span className={comp.id === activeCompetition?.id ? "" : "ml-5"}>
-                  {comp.name}
+                  {comp.displayName || comp.name}
                 </span>
               </button>
             ))}
@@ -169,7 +171,7 @@ export function ActiveCompetitionBadge({ className = "" }: { className?: string 
 
   return (
     <span className={`inline-flex items-center rounded-full bg-accentPrimary/10 px-2.5 py-0.5 text-xs font-medium text-accentPrimary ${className}`}>
-      {activeCompetition.name}
+      {activeCompetition.displayName || activeCompetition.name}
     </span>
   );
 }

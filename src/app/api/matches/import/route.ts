@@ -331,6 +331,7 @@ export async function POST(request: NextRequest) {
     const categorySlug: CategoryConfig["slug"] | undefined = body.category;
     const leagueFilter: string | undefined = body.leagueFilter;
     const customUrl: string | undefined = body.customUrl;
+    const competitionAbbreviation: string | undefined = body.competitionAbbreviation;
 
     let scrapedMatches: ScrapedMatch[] = [];
     if (customUrl) {
@@ -339,6 +340,13 @@ export async function POST(request: NextRequest) {
       scrapedMatches = await scrapeWithLeagueId(leagueFilter, season);
     } else {
       scrapedMatches = await scrapeZapasyCeskyhokej(categorySlug, season);
+    }
+
+    if (competitionAbbreviation) {
+      const target = competitionAbbreviation.toLowerCase().trim();
+      scrapedMatches = scrapedMatches.filter(
+        (m) => (m.category || "").toLowerCase().trim() === target
+      );
     }
 
     // Deduplicate by externalId
@@ -389,5 +397,15 @@ export async function GET(request: NextRequest) {
   const category = request.nextUrl.searchParams.get("category") as CategoryConfig["slug"] | null;
   const leagueFilter = request.nextUrl.searchParams.get("leagueFilter") || undefined;
   const customUrl = request.nextUrl.searchParams.get("customUrl") || undefined;
-  return POST({ json: async () => ({ season, category, leagueFilter, customUrl }) } as NextRequest);
+  const competitionAbbreviation =
+    request.nextUrl.searchParams.get("competitionAbbreviation") || undefined;
+  return POST({
+    json: async () => ({
+      season,
+      category,
+      leagueFilter,
+      customUrl,
+      competitionAbbreviation,
+    }),
+  } as NextRequest);
 }
