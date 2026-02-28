@@ -5,6 +5,7 @@ import { startAutoSync, stopAutoSync, getLastSyncTime, forceSync, onSync } from 
 import { isSupabaseConfigured } from '@/lib/supabaseClient';
 import type { SyncResult } from '@/lib/sync';
 import { useToast } from '@/contexts/ToastContext';
+import { ensurePresetsExist, ensureSeasonsExist } from '@/lib/dataService';
 
 export function useAutoSync() {
   const [lastSync, setLastSync] = useState<string | null>(null);
@@ -16,18 +17,25 @@ export function useAutoSync() {
   useEffect(() => {
     // Start auto-sync if Supabase is configured
     if (isSupabaseConfigured()) {
-      startAutoSync();
-      setLastSync(getLastSyncTime());
+      const run = async () => {
+        await ensureSeasonsExist();
+        await ensurePresetsExist();
+        startAutoSync();
+        setLastSync(getLastSyncTime());
+      };
+      run();
 
       // Subscribe to sync events
       const unsubscribe = onSync((result) => {
         setLastSync(getLastSyncTime());
         setLastSyncResult(result);
         setIsSyncing(false);
-        if (result.success) {
-          addToast("Synchronizace dokončena", "success");
-        } else {
-          addToast("Synchronizace selhala. Data jsou uložena lokálně.", "error");
+
+        if (!result.success) {
+          const hasUploads = Object.values(result.uploaded).some((count) => count > 0);
+          if (!hasUploads) {
+            addToast("Cloud není dostupný. Data jsou uložena lokálně.", "error");
+          }
         }
       });
 
@@ -37,8 +45,8 @@ export function useAutoSync() {
         unsubscribe();
       };
     }
-    if (!isSupabaseConfigured() && !hasShownOfflineToast.current) {
-      addToast("Offline režim: data se synchronizují po připojení.", "info");
+
+    if (!isSupabaseConfigured()) {
       hasShownOfflineToast.current = true;
     }
   }, [addToast]);
@@ -51,10 +59,11 @@ export function useAutoSync() {
       setLastSync(getLastSyncTime());
       setLastSyncResult(result);
       setIsSyncing(false);
-      if (result.success) {
-        addToast("Synchronizace dokončena", "success");
-      } else {
-        addToast("Synchronizace selhala. Data jsou uložena lokálně.", "error");
+      if (!result.success) {
+        const hasUploads = Object.values(result.uploaded).some((count) => count > 0);
+        if (!hasUploads) {
+          addToast("Cloud není dostupný. Data jsou uložena lokálně.", "error");
+        }
       }
       return result;
     }

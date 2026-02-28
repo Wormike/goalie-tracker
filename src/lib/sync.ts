@@ -191,9 +191,19 @@ export async function uploadToSupabase(): Promise<SyncResult> {
         };
       });
 
+      const uniqueTeams = new Map<string, (typeof teamsPayload)[number]>();
+      teamsPayload.forEach((t) => {
+        const key = (t.name || "").toLowerCase().trim();
+        if (!uniqueTeams.has(key)) {
+          uniqueTeams.set(key, t);
+        }
+      });
+
+      const dedupedTeamsPayload = Array.from(uniqueTeams.values());
+
       const { error: teamsError } = await supabase
         .from("teams")
-        .upsert(teamsPayload, { onConflict: "id" });
+        .upsert(dedupedTeamsPayload, { onConflict: "id" });
 
       if (teamsError) {
         result.errors.push(`Teams: ${teamsError.message}`);
@@ -205,15 +215,48 @@ export async function uploadToSupabase(): Promise<SyncResult> {
     // 2. Upload Competitions
     const competitions = storage.getCompetitions();
     if (competitions.length > 0) {
-      const compsPayload = competitions.map((c) => ({
-        id: ensureUuid(c.id),
-        name: c.name,
-        category: c.category || null,
-        season_id: c.seasonId || null,
-        external_id: c.externalId || null,
-        source: c.source || "manual",
-        standings_url: c.standingsUrl || null,
-      }));
+      const { data: existingComps } = await supabase
+        .from("competitions")
+        .select("id, external_id, name, season_id");
+
+      const existingByExternalId = new Map<string, string>();
+      const existingByNameSeason = new Map<string, string>();
+      if (existingComps) {
+        existingComps.forEach((c) => {
+          if (c.external_id) {
+            existingByExternalId.set(c.external_id, c.id);
+          }
+          const key = `${(c.name || "").toLowerCase().trim()}|${c.season_id || ""}`;
+          existingByNameSeason.set(key, c.id);
+        });
+      }
+
+      const compsPayload = competitions.map((c) => {
+        let finalId: string | undefined;
+        if (c.externalId) {
+          finalId = existingByExternalId.get(c.externalId);
+        }
+        if (!finalId) {
+          const key = `${(c.name || "").toLowerCase().trim()}|${c.seasonId || ""}`;
+          finalId = existingByNameSeason.get(key);
+        }
+        if (!finalId && isValidUuid(c.id)) {
+          finalId = c.id;
+        }
+        if (!finalId) {
+          finalId = uuidv4();
+        }
+
+        return {
+          id: finalId,
+          name: c.name,
+          category: c.category || null,
+          season_id: c.seasonId || null,
+          external_id: c.externalId || null,
+          source: c.source || "manual",
+          standings_url: c.standingsUrl || null,
+        };
+      });
 
       const { error: compsError } = await supabase
         .from("competitions")
@@ -375,7 +418,7 @@ export async function uploadToSupabase(): Promise<SyncResult> {
           away_team_name: m.awayTeamName || m.away || null,
           match_type: m.matchType || "friendly",
           competition_id: isValidUuid(m.competitionId || "") ? m.competitionId : null,
-          season_id: isValidUuid(m.seasonId || "") ? m.seasonId : null,
+          season_id: m.seasonId || null,
           datetime: m.datetime,
           venue: m.venue || null,
           status: status as "scheduled" | "in_progress" | "completed" | "cancelled",
