@@ -25,6 +25,7 @@ import { Select } from "@/components/ui/Select";
 import { useCompetitions } from "@/lib/competitionService";
 import {
   createCompetition as createCompetitionSupabase,
+  getCompetitionById,
 } from "@/lib/repositories/competitions";
 import { findOrCreateTeam } from "@/lib/repositories/teams";
 import { isUuid } from "@/lib/utils/uuid";
@@ -42,7 +43,7 @@ interface ImportWizardProps {
 type Step = 0 | 1 | 2 | 3;
 
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
-  const { competitions: userCompetitions, addCompetition } = useCompetitions();
+  const { competitions: userCompetitions, addCompetition, setActiveCompetitionId } = useCompetitions();
   const [step, setStep] = useState<Step>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +192,9 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         }
 
         setMappings((m) => ({ ...m, competitionId: existingCompetition.id }));
+        if (!selectedCompetitionId) {
+          setActiveCompetitionId(existingCompetition.id);
+        }
         
         // Pre-select all upcoming matches
         const upcomingIds = new Set<string>(
@@ -255,6 +259,14 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       // Import matches - save to Supabase if configured, otherwise to localStorage
       // Track created matches with their new IDs for navigation
       const createdMatches: Match[] = [];
+      let validCompetitionId = mappings.competitionId || "";
+      if (isSupabaseConfigured() && validCompetitionId) {
+        const exists = await getCompetitionById(validCompetitionId);
+        if (!exists) {
+          console.warn("[ImportWizard] Competition not found in Supabase, importing as unassigned.");
+          validCompetitionId = "";
+        }
+      }
       
       if (isSupabaseConfigured()) {
         // Save to Supabase - process sequentially to avoid race conditions
@@ -272,7 +284,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
             const enrichedMatch: Match = {
               ...match,
               goalieId: selectedGoalieId || undefined,
-              competitionId: mappings.competitionId || undefined,
+              competitionId: validCompetitionId || undefined,
               competitionIdManuallySet: false, // Imported matches are not manually set
               homeTeamId: homeTeamId || undefined,
               awayTeamId: awayTeamId || undefined,
@@ -358,7 +370,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           const enrichedMatch: Match = {
             ...match,
             goalieId: selectedGoalieId || undefined,
-            competitionId: mappings.competitionId || undefined,
+            competitionId: validCompetitionId || undefined,
             competitionIdManuallySet: false, // Imported matches are not manually set
             homeTeamId: mappings.homeTeamId || undefined,
           };
@@ -366,6 +378,10 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           createdMatches.push(enrichedMatch); // Store with original ID
           importedCount++;
         });
+      }
+
+      if (mappings.competitionId) {
+        setActiveCompetitionId(mappings.competitionId);
       }
 
       onComplete(importedCount);

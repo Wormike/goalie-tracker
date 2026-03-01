@@ -260,9 +260,15 @@ async function scrapeFromUrl(
       const completed = homeScore !== null && awayScore !== null;
 
       datetimes.forEach((dt, idx) => {
-        const base = `${categorySlug || categoryName}-${matchNumber || round || index}`;
-        const externalIdBase = slugify(base) || `row-${index}`;
-        const externalId = datetimes.length > 1 ? `${externalIdBase}-${idx + 1}` : externalIdBase;
+        const matchNum = (matchNumber || "").replace(/\D/g, "");
+        let externalId: string;
+        if (matchNum) {
+          externalId = `ceskyhokej-${matchNum}`;
+        } else {
+          const base = `${dt}-${homeTeam}-${awayTeam}`;
+          const externalIdBase = slugify(base) || `row-${Date.now()}-${index}`;
+          externalId = datetimes.length > 1 ? `${externalIdBase}-${idx + 1}` : externalIdBase;
+        }
 
         matches.push({
           externalId,
@@ -408,9 +414,15 @@ async function scrapeByAbbreviation(
       const completed = homeScore !== null && awayScore !== null;
 
       datetimes.forEach((dt, idx) => {
-        const base = `${competitionText}-${matchNumber || round || index}-${start}`;
-        const externalIdBase = slugify(base) || `row-${start}-${index}`;
-        const externalId = datetimes.length > 1 ? `${externalIdBase}-${idx + 1}` : externalIdBase;
+        const matchNum = (matchNumber || "").replace(/\D/g, "");
+        let externalId: string;
+        if (matchNum) {
+          externalId = `ceskyhokej-${matchNum}`;
+        } else {
+          const base = `${dt}-${homeTeam}-${awayTeam}`;
+          const externalIdBase = slugify(base) || `row-${Date.now()}-${start}-${index}`;
+          externalId = datetimes.length > 1 ? `${externalIdBase}-${idx + 1}` : externalIdBase;
+        }
 
         allMatches.push({
           externalId,

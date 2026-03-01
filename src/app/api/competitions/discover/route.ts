@@ -111,15 +111,17 @@ export async function GET(request: NextRequest) {
     let emptyPages = 0;
 
     while (start <= 600 && emptyPages < 2) {
-      const url =
+      const baseUrl =
         `https://zapasy.ceskyhokej.cz/seznam-zapasu?` +
         `filter%5Bseason%5D=${season}` +
         `&filter%5Bteam%5D=${teamId}` +
         `&filter%5BtimeShortcut%5D=this-season` +
         `&filter%5Bdirection%5D=ASC` +
-        `&filter%5BteamType%5D=all` +
-        `&start=${start}&count=${count}` +
-        `&actionType=default&do=more`;
+        `&filter%5BteamType%5D=all`;
+      const url =
+        start === 0
+          ? baseUrl
+          : `${baseUrl}&start=${start}&count=${count}&actionType=default&do=more`;
 
       const response = await fetch(url, {
         headers: {
