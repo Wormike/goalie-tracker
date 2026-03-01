@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ExportImportModal } from "@/components/ExportImportModal";
 import { StandingsLink } from "@/components/StandingsLink";
+import { CompetitionPicker } from "@/components/CompetitionPicker";
 import { useCompetitions } from "@/lib/competitionService";
 import {
   getStorageStats,
@@ -462,6 +463,7 @@ export default function SettingsPage() {
   const [showExportImport, setShowExportImport] = useState(false);
   const [showSeasonModal, setShowSeasonModal] = useState(false);
   const [showUserCompModal, setShowUserCompModal] = useState(false);
+  const [showCompetitionPicker, setShowCompetitionPicker] = useState(false);
   const [editingSeason, setEditingSeason] = useState<Season | null>(null);
   const [editingUserComp, setEditingUserComp] = useState<Competition | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Season | null>(null);
@@ -534,12 +536,30 @@ export default function SettingsPage() {
     } else {
       await addUserCompetition({
         name: data.name,
+        displayName: data.name,
         standingsUrl: data.standingsUrl,
         category: "",
         seasonId: currentSeasonState?.id || "",
         source: "manual",
       });
     }
+  };
+
+  const handleAddCompetition = async (payload: {
+    name: string;
+    displayName: string;
+    abbreviation?: string;
+    source: "ceskyhokej" | "manual";
+  }) => {
+    await addUserCompetition({
+      name: payload.name,
+      displayName: payload.displayName,
+      abbreviation: payload.abbreviation,
+      category: payload.name,
+      seasonId: currentSeasonState?.id || "",
+      source: payload.source,
+    });
+    loadData();
   };
 
   const handleEditUserComp = (comp: Competition) => {
@@ -619,7 +639,7 @@ export default function SettingsPage() {
             <button
               onClick={() => {
                 setEditingUserComp(null);
-                setShowUserCompModal(true);
+                setShowCompetitionPicker(true);
               }}
               className="rounded-lg bg-accentPrimary px-3 py-1.5 text-xs font-medium text-white"
             >
@@ -654,7 +674,7 @@ export default function SettingsPage() {
                             ? "text-accentPrimary" 
                             : "text-slate-200"
                         }`}>
-                          {comp.name}
+                          {comp.displayName || comp.name}
                         </span>
                         {comp.id === activeCompetition?.id && (
                           <span className="rounded bg-accentPrimary/30 px-2 py-0.5 text-[10px] font-medium text-accentPrimary">
@@ -934,6 +954,12 @@ export default function SettingsPage() {
         }}
         onSave={handleSaveUserComp}
         editingCompetition={editingUserComp}
+      />
+
+      <CompetitionPicker
+        open={showCompetitionPicker}
+        onClose={() => setShowCompetitionPicker(false)}
+        onSelect={handleAddCompetition}
       />
 
       {/* Delete User Competition Confirmation Modal */}

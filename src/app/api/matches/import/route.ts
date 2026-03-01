@@ -104,6 +104,15 @@ function normalizeTeam(name: string): string {
   return name.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+function normalizeCompetition(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function isSlovanUsti(team: string): boolean {
   const norm = normalizeTeam(team);
   return SLOVAN_VARIANTS.some((variant) => norm.includes(variant));
@@ -322,6 +331,117 @@ async function scrapeWithLeagueId(leagueId: string, season = "2025-2026"): Promi
   return scrapeFromUrl(url, undefined, season);
 }
 
+async function scrapeByAbbreviation(
+  teamId: string,
+  season = "2025-2026",
+  abbreviation = ""
+): Promise<ScrapedMatch[]> {
+  const seasonStr = season || "2025-2026";
+  const startYear = parseInt(seasonStr.slice(0, 4), 10) || 2025;
+  const filterSeason = String(startYear);
+  const target = normalizeCompetition(abbreviation);
+  const allMatches: ScrapedMatch[] = [];
+  let start = 0;
+  const count = 30;
+  let emptyPages = 0;
+
+  while (start <= 600 && emptyPages < 2) {
+    const url =
+      `https://zapasy.ceskyhokej.cz/seznam-zapasu?` +
+      `filter%5Bseason%5D=${filterSeason}` +
+      `&filter%5Bteam%5D=${teamId}` +
+      `&filter%5BtimeShortcut%5D=this-season` +
+      `&filter%5Bdirection%5D=ASC` +
+      `&filter%5BteamType%5D=all` +
+      `&start=${start}&count=${count}` +
+      `&actionType=default&do=more`;
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      break;
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    const rows = $("table tbody tr, table tr");
+    let parsed = 0;
+
+    rows.each((index, row) => {
+      const cells = $(row).find("td");
+      if (cells.length < 7) return;
+
+      const dateText = $(cells[2]).text().trim();
+      const timeText = $(cells[3]).text().trim();
+      const venue = $(cells[4]).text().trim();
+      const competitionText = $(cells[5]).text().trim();
+      const round = $(cells[6] || {}).text().trim();
+      const matchNumber = $(cells[7] || {}).text().trim();
+      const homeTeam = $(cells[8] || {}).text().trim() || $(cells[6] || {}).text().trim();
+      const awayTeam = $(cells[9] || {}).text().trim() || $(cells[7] || {}).text().trim();
+      const statusText = $(cells[10] || cells[cells.length - 1] || {}).text().trim();
+
+      if (!competitionText || normalizeCompetition(competitionText) !== target) {
+        return;
+      }
+
+      const datetimes = parseDateRange(dateText, timeText);
+      if (datetimes.length === 0) return;
+
+      const involvesSlovan = isSlovanUsti(homeTeam) || isSlovanUsti(awayTeam);
+      if (!involvesSlovan) return;
+
+      let homeScore: number | null = null;
+      let awayScore: number | null = null;
+      const scoreMatch = statusText.match(/(\d+)\s*[:\-]\s*(\d+)/);
+      if (scoreMatch) {
+        homeScore = parseInt(scoreMatch[1], 10);
+        awayScore = parseInt(scoreMatch[2], 10);
+      }
+      const completed = homeScore !== null && awayScore !== null;
+
+      datetimes.forEach((dt, idx) => {
+        const base = `${competitionText}-${matchNumber || round || index}-${start}`;
+        const externalIdBase = slugify(base) || `row-${start}-${index}`;
+        const externalId = datetimes.length > 1 ? `${externalIdBase}-${idx + 1}` : externalIdBase;
+
+        allMatches.push({
+          externalId,
+          homeTeam,
+          awayTeam,
+          homeScore,
+          awayScore,
+          datetime: dt,
+          venue,
+          category: competitionText,
+          matchNumber,
+          completed,
+          statusText,
+        });
+      });
+
+      parsed += 1;
+    });
+
+    if (parsed === 0) {
+      emptyPages += 1;
+    } else {
+      emptyPages = 0;
+    }
+
+    start += count;
+  }
+
+  return allMatches;
+}
+
 export async function POST(request: NextRequest) {
   const start = Date.now();
 
@@ -334,19 +454,14 @@ export async function POST(request: NextRequest) {
     const competitionAbbreviation: string | undefined = body.competitionAbbreviation;
 
     let scrapedMatches: ScrapedMatch[] = [];
-    if (customUrl) {
+    if (competitionAbbreviation) {
+      scrapedMatches = await scrapeByAbbreviation("1710", season, competitionAbbreviation);
+    } else if (customUrl) {
       scrapedMatches = await scrapeFromUrl(customUrl, undefined, season);
     } else if (leagueFilter) {
       scrapedMatches = await scrapeWithLeagueId(leagueFilter, season);
     } else {
       scrapedMatches = await scrapeZapasyCeskyhokej(categorySlug, season);
-    }
-
-    if (competitionAbbreviation) {
-      const target = competitionAbbreviation.toLowerCase().trim();
-      scrapedMatches = scrapedMatches.filter(
-        (m) => (m.category || "").toLowerCase().trim() === target
-      );
     }
 
     // Deduplicate by externalId

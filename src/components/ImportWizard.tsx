@@ -13,6 +13,7 @@ import {
   saveMatch,
   saveExternalMapping,
   findExternalMapping,
+  getCurrentSeason,
 } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import {
@@ -22,14 +23,15 @@ import {
 } from "@/lib/repositories/matches";
 import { Select } from "@/components/ui/Select";
 import { useCompetitions } from "@/lib/competitionService";
-import { COMPETITION_PRESETS } from "@/lib/competitionPresets";
 import {
   createCompetition as createCompetitionSupabase,
-  findCompetitionByExternalId,
-  findCompetitionByLeagueFilter,
 } from "@/lib/repositories/competitions";
 import { findOrCreateTeam } from "@/lib/repositories/teams";
 import { isUuid } from "@/lib/utils/uuid";
+import {
+  CompetitionSearchDropdown,
+  type DiscoveredCompetition,
+} from "@/components/CompetitionSearchDropdown";
 
 interface ImportWizardProps {
   open: boolean;
@@ -39,41 +41,6 @@ interface ImportWizardProps {
 
 type Step = 0 | 1 | 2 | 3;
 
-type CompetitionOption = {
-  leagueId: string;
-  name: string;
-  parentGroup: string;
-  season: string | null;
-};
-
-function parseLeagueFilter(url: string): string | null {
-  const match =
-    url.match(/filter\[league\]=([^&]+)/) ||
-    url.match(/filter%5Bleague%5D=([^&]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function parseSeasonId(url: string): string | null {
-  const match =
-    url.match(/filter\[season\]=(\d{4})/) ||
-    url.match(/filter%5Bseason%5D=(\d{4})/);
-  if (!match) return null;
-  const startYear = parseInt(match[1], 10);
-  if (!Number.isFinite(startYear)) return null;
-  return `${startYear}-${startYear + 1}`;
-}
-
-function seasonLabelToId(label: string | null): string | null {
-  if (!label) return null;
-  const match = label.match(/(\d{4})\s*\/\s*(\d{2})/);
-  if (!match) return null;
-  const startYear = parseInt(match[1], 10);
-  const endYearShort = parseInt(match[2], 10);
-  if (!Number.isFinite(startYear) || !Number.isFinite(endYearShort)) return null;
-  const endYear = Math.floor(startYear / 100) * 100 + endYearShort;
-  return `${startYear}-${endYear}`;
-}
-
 export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
   const { competitions: userCompetitions, addCompetition } = useCompetitions();
   const [step, setStep] = useState<Step>(0);
@@ -81,14 +48,8 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Step 0: Source selection
-  const [selectedPreset, setSelectedPreset] = useState(COMPETITION_PRESETS[0]);
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string>("");
-  const [customUrl, setCustomUrl] = useState("");
-  const [customLeagueFilter, setCustomLeagueFilter] = useState("");
-  const [customName, setCustomName] = useState("");
-  const [availableCompetitions, setAvailableCompetitions] = useState<CompetitionOption[]>([]);
-  const [listLoading, setListLoading] = useState(false);
-  const [selectedDynamic, setSelectedDynamic] = useState<CompetitionOption | null>(null);
+  const [selectedImportComp, setSelectedImportComp] = useState<DiscoveredCompetition | null>(null);
 
   // Step 1: Mapping
   const [scrapedMatches, setScrapedMatches] = useState<Match[]>([]);
@@ -139,116 +100,45 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         return;
       }
 
-      const mappingKey =
-        selectedDynamic?.leagueId ||
-        (customLeagueFilter.trim() ? customLeagueFilter.trim() : null) ||
-        (customUrl.trim() ? customUrl.trim() : null);
-
-      if (mappingKey) {
+      if (selectedImportComp) {
         const savedCompMapping = findExternalMapping(
           "ceskyhokej",
           "competition",
-          mappingKey
+          selectedImportComp.abbreviation || selectedImportComp.name
         );
         if (savedCompMapping) {
-          const exists = userCompetitions.some((c) => c.id === savedCompMapping.internalId);
+          const exists = userCompetitions.some(c => c.id === savedCompMapping.internalId);
           if (exists) {
             setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
           }
         }
-        return;
-      }
-
-      // Check for saved mappings
-      const savedCompMapping = findExternalMapping(
-        "ceskyhokej",
-        "competition",
-        selectedPreset.id
-      );
-      if (savedCompMapping) {
-        // Check if the saved competition still exists in userCompetitions
-        const exists = userCompetitions.some(c => c.id === savedCompMapping.internalId);
-        if (exists) {
-          setMappings((m) => ({ ...m, competitionId: savedCompMapping.internalId }));
-        }
-      }
-
-      if (!savedCompMapping && selectedPreset.externalId) {
-        const presetCompetition = userCompetitions.find(
-          (c) => c.externalId === selectedPreset.externalId
-        );
-        if (presetCompetition) {
-          setMappings((m) => ({ ...m, competitionId: presetCompetition.id }));
-        }
       }
     }
-  }, [open, selectedPreset.id, selectedPreset.externalId, selectedDynamic, customLeagueFilter, customUrl, selectedCompetitionId, userCompetitions]);
+  }, [open, selectedCompetitionId, selectedImportComp, userCompetitions]);
 
   if (!open) return null;
-
-  const resolveLeagueFilter = (): string | null => {
-    if (selectedDynamic?.leagueId) return selectedDynamic.leagueId;
-    if (customLeagueFilter.trim()) return customLeagueFilter.trim();
-    if (customUrl.trim()) return parseLeagueFilter(customUrl.trim());
-    if (selectedPreset.leagueFilter) return selectedPreset.leagueFilter;
-    return null;
-  };
-
-  const resolveSeasonId = (): string => {
-    if (selectedDynamic?.season) {
-      return seasonLabelToId(selectedDynamic.season) || selectedPreset.season;
-    }
-    if (customUrl.trim()) {
-      return parseSeasonId(customUrl.trim()) || selectedPreset.season;
-    }
-    return selectedPreset.season;
-  };
-
-  const resolveMappingKey = (): string => {
-    const leagueFilter = resolveLeagueFilter();
-    if (leagueFilter) return leagueFilter;
-    if (customUrl.trim()) return customUrl.trim();
-    return selectedPreset.id;
-  };
-
-  const loadCompetitionList = async () => {
-    setListLoading(true);
-    try {
-      const response = await fetch("/api/competitions/list");
-      const data = await response.json();
-      if (data.success) {
-        setAvailableCompetitions(data.competitions || []);
-      } else {
-        setError(data.error || "Nepodařilo se načíst seznam soutěží");
-      }
-    } catch {
-      setError("Chyba při načítání seznamu soutěží");
-    } finally {
-      setListLoading(false);
-    }
-  };
 
   const handleFetchMatches = async () => {
     setLoading(true);
     setError(null);
 
     try {
+      if (!selectedImportComp) {
+        setError("Vyberte soutěž z ceskyhokej.cz.");
+        return;
+      }
       const selectedCompetition = selectedCompetitionId
         ? userCompetitions.find((c) => c.id === selectedCompetitionId)
         : null;
-      const seasonId = resolveSeasonId();
-      const leagueFilter = selectedCompetition ? null : resolveLeagueFilter();
+      const season = getCurrentSeason();
+      const seasonId = selectedCompetition?.seasonId || season?.id || "";
       const competitionAbbreviation =
-        selectedCompetition?.abbreviation ||
-        (selectedCompetition ? selectedCompetition.name : undefined);
+        selectedImportComp.abbreviation || selectedImportComp.name;
       const response = await fetch("/api/matches/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          season: selectedCompetition?.seasonId || seasonId,
-          category: selectedPreset.id,
-          leagueFilter: leagueFilter || undefined,
-          customUrl: customUrl.trim() || undefined,
+          season: seasonId || "2025-2026",
           competitionAbbreviation: competitionAbbreviation || undefined,
         }),
       });
@@ -259,37 +149,29 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         setScrapedMatches(data.matches);
         
         let existingCompetition: Competition | null = selectedCompetition ?? null;
-        if (leagueFilter) {
-          if (isSupabaseConfigured()) {
-            existingCompetition = await findCompetitionByLeagueFilter(leagueFilter);
-          } else {
-            existingCompetition =
-              userCompetitions.find((c) => c.leagueFilter === leagueFilter) || null;
-          }
-        } else if (selectedPreset.externalId) {
-          if (isSupabaseConfigured()) {
-            existingCompetition = await findCompetitionByExternalId(selectedPreset.externalId);
-          } else {
-            existingCompetition =
-              userCompetitions.find((c) => c.externalId === selectedPreset.externalId) || null;
-          }
-        }
-
-        if (!existingCompetition && selectedCompetition) {
-          existingCompetition = selectedCompetition;
+        if (!existingCompetition) {
+          existingCompetition =
+            userCompetitions.find(
+              (c) =>
+                c.abbreviation === competitionAbbreviation ||
+                c.name === competitionAbbreviation
+            ) || null;
         }
 
         if (!existingCompetition) {
           const firstMatch = data.matches[0] as Match;
-          const compName = selectedDynamic?.name || customName.trim() || firstMatch.category || selectedPreset.name;
+          const compName =
+            selectedImportComp.fullName ||
+            selectedImportComp.name ||
+            firstMatch.category ||
+            competitionAbbreviation;
           const createPayload = {
             name: compName,
+            displayName: compName,
+            abbreviation: competitionAbbreviation,
             category: compName,
             seasonId: seasonId,
-            externalId: leagueFilter ? undefined : selectedPreset.externalId,
-            leagueFilter: leagueFilter || undefined,
             source: "ceskyhokej" as const,
-            standingsUrl: selectedPreset.standingsUrl,
           };
 
           if (isSupabaseConfigured()) {
@@ -297,7 +179,6 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           } else {
             existingCompetition = await addCompetition({
               ...createPayload,
-              standingsUrl: createPayload.standingsUrl,
             });
           }
         }
@@ -340,13 +221,15 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         externalId:
           selectedCompetition?.abbreviation ||
           selectedCompetition?.name ||
-          resolveMappingKey(),
+          selectedImportComp?.abbreviation ||
+          selectedImportComp?.name ||
+          "",
         externalName:
           selectedCompetition?.displayName ||
           selectedCompetition?.name ||
-          selectedDynamic?.name ||
-          customName.trim() ||
-          selectedPreset.name,
+          selectedImportComp?.fullName ||
+          selectedImportComp?.name ||
+          "",
         internalId: mappings.competitionId,
         createdAt: new Date().toISOString(),
       });
@@ -574,120 +457,60 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 Vyberte soutěž pro import zápasů HC Slovan Ústí.
               </p>
 
-              <Select
-                label="Soutěž v aplikaci"
-                value={selectedCompetitionId}
-                onChange={(val) => {
-                  setSelectedCompetitionId(val);
-                  setSelectedDynamic(null);
-                  setCustomUrl("");
-                  setCustomLeagueFilter("");
-                  setCustomName("");
-                }}
-                options={[
-                  { value: "", label: "-- Vybrat soutěž --" },
-                  ...userCompetitions.map((c) => ({
-                    value: c.id,
-                    label: c.displayName || c.name,
-                  })),
-                ]}
-              />
+              {userCompetitions.length > 0 && (
+                <Select
+                  label="Přiřadit k soutěži v aplikaci"
+                  value={selectedCompetitionId}
+                  onChange={(val) => setSelectedCompetitionId(val)}
+                  options={[
+                    { value: "", label: "-- Přiřadit automaticky --" },
+                    ...userCompetitions.map((c) => ({
+                      value: c.id,
+                      label: c.displayName || c.name,
+                    })),
+                  ]}
+                />
+              )}
 
               <div>
-                <div className="mb-2 text-xs font-semibold text-slate-400">
-                  Základní část
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {COMPETITION_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      onClick={() => {
-                        setSelectedPreset(preset);
-                        setSelectedCompetitionId("");
-                        setSelectedDynamic(null);
-                        setCustomUrl("");
-                        setCustomLeagueFilter("");
-                        setCustomName("");
-                      }}
-                      className={`rounded-xl px-3 py-3 text-sm font-medium ${
-                        selectedPreset.id === preset.id && !selectedDynamic && !customUrl && !customLeagueFilter
-                          ? "bg-accentPrimary text-white"
-                          : "bg-slate-800 text-slate-300"
-                      }`}
-                    >
-                      {preset.name}
-                    </button>
-                  ))}
-                </div>
+                <label className="mb-2 block text-xs font-semibold text-slate-400">
+                  Soutěž na ceskyhokej.cz
+                </label>
+                <CompetitionSearchDropdown
+                  onSelect={setSelectedImportComp}
+                  selectedCompetition={selectedImportComp}
+                />
               </div>
 
-              <div className="rounded-lg bg-slate-800/50 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-400">
-                    Jiná soutěž z ceskyhokej.cz
-                  </span>
-                  <button
-                    onClick={loadCompetitionList}
-                    disabled={listLoading}
-                    className="rounded bg-slate-700 px-2 py-1 text-[11px] text-slate-300 disabled:opacity-50"
-                  >
-                    {listLoading ? "Načítám..." : "Načíst seznam"}
-                  </button>
-                </div>
-
-                {availableCompetitions.length > 0 && (
-                  <div className="mb-3">
-                    <Select
-                      label="Vybrat soutěž ze seznamu"
-                      value={selectedDynamic?.leagueId || ""}
-                      onChange={(val) => {
-                        const found = availableCompetitions.find((c) => c.leagueId === val) || null;
-                        setSelectedDynamic(found);
-                        setCustomUrl("");
-                        setCustomLeagueFilter("");
-                        setCustomName(found?.name || "");
-                      }}
-                      options={[
-                        { value: "", label: "-- Vyberte soutěž --" },
-                        ...availableCompetitions.map((c) => ({
-                          value: c.leagueId,
-                          label: `${c.parentGroup ? `${c.parentGroup} • ` : ""}${c.name}`,
-                        })),
-                      ]}
-                    />
+              {selectedImportComp && (
+                <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-xs text-slate-400">
+                  <div className="font-medium text-slate-200">
+                    {selectedImportComp.fullName || selectedImportComp.name}
                   </div>
-                )}
-
-                <div className="space-y-2">
-                  <input
-                    type="text"
-                    placeholder="league_XXX"
-                    value={customLeagueFilter}
-                    onChange={(e) => {
-                      setCustomLeagueFilter(e.target.value);
-                      setSelectedDynamic(null);
-                    }}
-                    className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Název soutěže (volitelné)"
-                    value={customName}
-                    onChange={(e) => setCustomName(e.target.value)}
-                    className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
-                  />
-                  <input
-                    type="text"
-                    placeholder="https://zapasy.ceskyhokej.cz/seznam-zapasu?filter[league]=league_..."
-                    value={customUrl}
-                    onChange={(e) => {
-                      setCustomUrl(e.target.value);
-                      setSelectedDynamic(null);
-                    }}
-                    className="w-full rounded-lg bg-slate-700 px-3 py-2 text-sm text-slate-100"
-                  />
+                  <div className="mt-1">
+                    {selectedImportComp.abbreviation}
+                    {selectedImportComp.matchCount ? ` • ${selectedImportComp.matchCount} zápasů` : ""}
+                    {selectedImportComp.completedCount !== undefined
+                      ? ` • ${selectedImportComp.completedCount} odehráno`
+                      : ""}
+                    {selectedImportComp.upcomingCount !== undefined
+                      ? ` • ${selectedImportComp.upcomingCount} nadcházejících`
+                      : ""}
+                  </div>
+                  {(selectedImportComp.fullName || selectedImportComp.name).toLowerCase().includes("nadstavba") && (
+                    <span className="mt-1 inline-flex rounded bg-accentSuccess/20 px-1.5 py-0.5 text-[10px] text-accentSuccess">
+                      Nadstavba
+                    </span>
+                  )}
+                  {(selectedImportComp.fullName || selectedImportComp.name)
+                    .toLowerCase()
+                    .includes("o umístění") && (
+                    <span className="mt-1 inline-flex rounded bg-accentPrimary/20 px-1.5 py-0.5 text-[10px] text-accentPrimary">
+                      O umístění
+                    </span>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div className="rounded-lg bg-slate-800/50 p-3 text-xs text-slate-400">
                 <p>
@@ -695,7 +518,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
                 </p>
                 <p className="mt-1">
                   📅 Sezóna:{" "}
-                  <span className="text-slate-200">{resolveSeasonId()}</span>
+                  <span className="text-slate-200">{getCurrentSeason().id}</span>
                 </p>
               </div>
             </div>

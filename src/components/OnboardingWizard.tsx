@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { useCompetitions } from "@/lib/competitionService";
+import { getCurrentSeason } from "@/lib/storage";
+import {
+  CompetitionSearchDropdown,
+  type DiscoveredCompetition,
+} from "@/components/CompetitionSearchDropdown";
 
 interface OnboardingWizardProps {
   onComplete?: () => void;
@@ -23,6 +28,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   
   const [mode, setMode] = useState<"select" | "create">("select");
   const [selectedCompetitionId, setSelectedCompetitionId] = useState<string>("");
+  const [createMode, setCreateMode] = useState<"web" | "manual">("web");
+  const [selectedWebComp, setSelectedWebComp] = useState<DiscoveredCompetition | null>(null);
+  const [webDisplayName, setWebDisplayName] = useState("");
   const [name, setName] = useState("");
   const [standingsUrl, setStandingsUrl] = useState("");
   const [error, setError] = useState("");
@@ -84,12 +92,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     setIsSubmitting(true);
 
     try {
+      const season = getCurrentSeason();
       // Create the competition
       const newComp = await addCompetition({
         name: trimmedName,
+        displayName: trimmedName,
         standingsUrl: standingsUrl.trim() || undefined,
         category: "",
-        seasonId: "",
+        seasonId: season?.id || "",
         source: "manual",
       });
       if (newComp) {
@@ -219,61 +229,185 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
           {/* Create new competition */}
           {mode === "create" && (
-            <form onSubmit={handleCreateCompetition} className="space-y-4">
-            {/* Competition name */}
-            <div>
-              <label className="mb-2 block text-xs font-medium text-slate-300">
-                Název soutěže *
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="7. třída - Vojta"
-                className="w-full rounded-xl border border-borderSoft bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
-                autoFocus
-                disabled={isSubmitting}
-              />
-            </div>
-
-            {/* Standings URL */}
-            <div>
-              <label className="mb-2 block text-xs font-medium text-slate-300">
-                Odkaz na tabulku
-                <span className="ml-1 font-normal text-slate-500">(volitelné)</span>
-              </label>
-              <input
-                type="url"
-                value={standingsUrl}
-                onChange={(e) => setStandingsUrl(e.target.value)}
-                placeholder="https://www.ceskyhokej.cz/competition/standings/24"
-                className="w-full rounded-xl border border-borderSoft bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
-                disabled={isSubmitting}
-              />
-              <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-500">
-                <span className="mt-0.5">💡</span>
-                <span>
-                  Najdi tabulku na ceskyhokej.cz a zkopíruj URL z prohlížeče
-                </span>
-              </p>
-            </div>
-
-            {/* Error message */}
-            {error && (
-              <div className="rounded-lg bg-accentDanger/20 px-3 py-2 text-xs text-accentDanger">
-                {error}
+            <div className="space-y-4">
+              <div className="flex gap-2 rounded-xl bg-slate-800/50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setCreateMode("web")}
+                  className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                    createMode === "web"
+                      ? "bg-accentPrimary text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Z ceskyhokej.cz
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreateMode("manual")}
+                  className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                    createMode === "manual"
+                      ? "bg-accentPrimary text-white"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Vlastní soutěž
+                </button>
               </div>
-            )}
 
-            {/* Submit button */}
-            <button
-              type="submit"
-              disabled={isSubmitting || !name.trim()}
-              className="w-full rounded-xl bg-accentPrimary py-3.5 text-sm font-semibold text-white transition-colors hover:bg-accentPrimary/90 disabled:opacity-50"
-            >
-              {isSubmitting ? "Vytvářím..." : "Vytvořit soutěž"}
-            </button>
-            </form>
+              {createMode === "web" ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-medium text-slate-300">
+                      Vyberte soutěž *
+                    </label>
+                    <CompetitionSearchDropdown
+                      onSelect={(comp) => {
+                        setSelectedWebComp(comp);
+                        setWebDisplayName(comp?.fullName || comp?.name || "");
+                      }}
+                      selectedCompetition={selectedWebComp}
+                    />
+                  </div>
+
+                  {selectedWebComp && (
+                    <div className="space-y-2">
+                      <div className="rounded-lg bg-slate-800/50 px-3 py-2 text-xs text-slate-400">
+                        <div className="font-medium text-slate-200">
+                          {selectedWebComp.fullName || selectedWebComp.name}
+                        </div>
+                        <div className="mt-1">
+                          {selectedWebComp.abbreviation}
+                          {selectedWebComp.matchCount ? ` • ${selectedWebComp.matchCount} zápasů` : ""}
+                          {selectedWebComp.completedCount !== undefined
+                            ? ` • ${selectedWebComp.completedCount} odehráno`
+                            : ""}
+                          {selectedWebComp.upcomingCount !== undefined
+                            ? ` • ${selectedWebComp.upcomingCount} nadcházejících`
+                            : ""}
+                        </div>
+                        {(selectedWebComp.fullName || selectedWebComp.name).toLowerCase().includes("nadstavba") && (
+                          <span className="mt-1 inline-flex rounded bg-accentSuccess/20 px-1.5 py-0.5 text-[10px] text-accentSuccess">
+                            Nadstavba
+                          </span>
+                        )}
+                        {(selectedWebComp.fullName || selectedWebComp.name)
+                          .toLowerCase()
+                          .includes("o umístění") && (
+                          <span className="mt-1 inline-flex rounded bg-accentPrimary/20 px-1.5 py-0.5 text-[10px] text-accentPrimary">
+                            O umístění
+                          </span>
+                        )}
+                      </div>
+                      <label className="mb-2 block text-xs font-medium text-slate-300">
+                        Název v aplikaci (můžete přepsat)
+                      </label>
+                      <input
+                        type="text"
+                        value={webDisplayName}
+                        onChange={(e) => setWebDisplayName(e.target.value)}
+                        className="w-full rounded-xl border border-borderSoft bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
+                      />
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="rounded-lg bg-accentDanger/20 px-3 py-2 text-xs text-accentDanger">
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!selectedWebComp || isSubmitting}
+                    onClick={async () => {
+                      if (!selectedWebComp) return;
+                      setIsSubmitting(true);
+                      setError("");
+                      try {
+                        const season = getCurrentSeason();
+                        const newComp = await addCompetition({
+                          name: selectedWebComp.fullName || selectedWebComp.name,
+                          displayName:
+                            webDisplayName ||
+                            selectedWebComp.fullName ||
+                            selectedWebComp.name,
+                          abbreviation:
+                            selectedWebComp.abbreviation || selectedWebComp.name,
+                          category: selectedWebComp.name,
+                          seasonId: season?.id || "",
+                          source: "ceskyhokej",
+                        });
+                        if (newComp) {
+                          setActiveCompetitionId(newComp.id);
+                        }
+                        onComplete?.();
+                      } catch (err) {
+                        console.error("[OnboardingWizard] Failed to create competition:", err);
+                        setError("Nepodařilo se vytvořit soutěž. Zkuste to znovu.");
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    className="w-full rounded-xl bg-accentPrimary py-3.5 text-sm font-semibold text-white transition-colors hover:bg-accentPrimary/90 disabled:opacity-50"
+                  >
+                    {isSubmitting ? "Vytvářím..." : "Vytvořit soutěž"}
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleCreateCompetition} className="space-y-4">
+                  <div>
+                    <label className="mb-2 block text-xs font-medium text-slate-300">
+                      Název soutěže *
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="7. třída - Vojta"
+                      className="w-full rounded-xl border border-borderSoft bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
+                      autoFocus
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-xs font-medium text-slate-300">
+                      Odkaz na tabulku
+                      <span className="ml-1 font-normal text-slate-500">(volitelné)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={standingsUrl}
+                      onChange={(e) => setStandingsUrl(e.target.value)}
+                      placeholder="https://www.ceskyhokej.cz/competition/standings/24"
+                      className="w-full rounded-xl border border-borderSoft bg-slate-800 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accentPrimary focus:outline-none focus:ring-2 focus:ring-accentPrimary/20"
+                      disabled={isSubmitting}
+                    />
+                    <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-500">
+                      <span className="mt-0.5">💡</span>
+                      <span>
+                        Najdi tabulku na ceskyhokej.cz a zkopíruj URL z prohlížeče
+                      </span>
+                    </p>
+                  </div>
+
+                  {error && (
+                    <div className="rounded-lg bg-accentDanger/20 px-3 py-2 text-xs text-accentDanger">
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || !name.trim()}
+                    className="w-full rounded-xl bg-accentPrimary py-3.5 text-sm font-semibold text-white transition-colors hover:bg-accentPrimary/90 disabled:opacity-50"
+                  >
+                    {isSubmitting ? "Vytvářím..." : "Vytvořit soutěž"}
+                  </button>
+                </form>
+              )}
+            </div>
           )}
 
           {/* Footer note */}

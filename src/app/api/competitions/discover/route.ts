@@ -4,12 +4,22 @@ import type { AnyNode } from "domhandler";
 
 interface DiscoveredCompetition {
   name: string;
+  fullName: string;
   abbreviation: string;
   matchCount: number;
+  completedCount: number;
+  upcomingCount: number;
   hasUpcoming: boolean;
   hasCompleted: boolean;
   sampleMatch?: string;
 }
+
+const ABBR_TO_FULL: Record<string, string> = {
+  "LSŽ A": 'Liga starších žáků "A"',
+  "LSŽ B": 'Liga starších žáků "B"',
+  "LMŽ A": 'Liga mladších žáků "A"',
+  "LMŽ B": 'Liga mladších žáků "B"',
+};
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -35,18 +45,28 @@ function parseRows(
     );
     const hasScore = /\d+\s*:\s*\d+/.test(statusText);
 
+    const fullName = ABBR_TO_FULL[competitionAbbr] || competitionAbbr;
     const existing = map.get(competitionAbbr) || {
       name: competitionAbbr,
+      fullName,
       abbreviation: competitionAbbr,
       matchCount: 0,
+      completedCount: 0,
+      upcomingCount: 0,
       hasUpcoming: false,
       hasCompleted: false,
       sampleMatch: undefined,
     };
 
+    existing.fullName = existing.fullName || fullName;
     existing.matchCount += 1;
-    if (hasScore) existing.hasCompleted = true;
-    if (!hasScore) existing.hasUpcoming = true;
+    if (hasScore) {
+      existing.hasCompleted = true;
+      existing.completedCount += 1;
+    } else {
+      existing.hasUpcoming = true;
+      existing.upcomingCount += 1;
+    }
     if (!existing.sampleMatch && homeTeam && awayTeam) {
       existing.sampleMatch = `${homeTeam} vs ${awayTeam}`;
     }

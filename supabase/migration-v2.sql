@@ -39,3 +39,4 @@ CREATE INDEX IF NOT EXISTS idx_matches_away_team ON matches(away_team_id);
 CREATE INDEX IF NOT EXISTS idx_matches_season_id ON matches(season_id);
 
 
+
