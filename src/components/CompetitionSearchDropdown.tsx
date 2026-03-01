@@ -169,7 +169,7 @@ export function CompetitionSearchDropdown({
                 const phase = getPhaseBadge(comp.fullName || comp.name);
                 return (
                 <button
-                  key={comp.abbreviation}
+                  key={`${comp.abbreviation}-${comp.fullName || comp.name}`}
                   onClick={() => {
                     onSelect(comp);
                     setIsOpen(false);

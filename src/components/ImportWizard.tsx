@@ -133,7 +133,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
       const season = getCurrentSeason();
       const seasonId = selectedCompetition?.seasonId || season?.id || "";
       const competitionAbbreviation =
-        selectedImportComp.abbreviation || selectedImportComp.name;
+        selectedImportComp.name || selectedImportComp.abbreviation;
       const response = await fetch("/api/matches/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,12 +150,14 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
         
         let existingCompetition: Competition | null = selectedCompetition ?? null;
         if (!existingCompetition) {
+          const normalized = (competitionAbbreviation || "").toLowerCase().trim();
           existingCompetition =
-            userCompetitions.find(
-              (c) =>
-                c.abbreviation === competitionAbbreviation ||
-                c.name === competitionAbbreviation
-            ) || null;
+            userCompetitions.find((c) => {
+              const name = (c.name || "").toLowerCase().trim();
+              const display = (c.displayName || "").toLowerCase().trim();
+              const abbr = (c.abbreviation || "").toLowerCase().trim();
+              return name === normalized || display === normalized || abbr === normalized;
+            }) || null;
         }
 
         if (!existingCompetition) {
@@ -168,7 +170,7 @@ export function ImportWizard({ open, onClose, onComplete }: ImportWizardProps) {
           const createPayload = {
             name: compName,
             displayName: compName,
-            abbreviation: competitionAbbreviation,
+            abbreviation: selectedImportComp.abbreviation || competitionAbbreviation,
             category: compName,
             seasonId: seasonId,
             source: "ceskyhokej" as const,

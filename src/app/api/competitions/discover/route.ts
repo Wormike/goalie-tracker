@@ -21,6 +21,24 @@ const ABBR_TO_FULL: Record<string, string> = {
   "LMŽ B": 'Liga mladších žáků "B"',
 };
 
+function inferAbbreviation(label: string): string | null {
+  const normalized = label.toLowerCase();
+  let prefix: string | null = null;
+  if (normalized.includes("starších žáků") || normalized.includes("starsi zaku")) {
+    prefix = "LSŽ";
+  }
+  if (normalized.includes("mladších žáků") || normalized.includes("mladsi zaku")) {
+    prefix = "LMŽ";
+  }
+  if (!prefix) return null;
+  const letterMatch =
+    label.match(/"([AB])"/) ||
+    label.match(/\b([AB])\b/) ||
+    label.match(/žáků\s+([AB])\b/i);
+  const letter = letterMatch ? letterMatch[1] : null;
+  return letter ? `${prefix} ${letter}` : prefix;
+}
+
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -35,8 +53,8 @@ function parseRows(
     const cells = $(row).find("td");
     if (cells.length < 7) return;
 
-    const competitionAbbr = normalizeText($(cells[5]).text());
-    if (!competitionAbbr) return;
+    const competitionText = normalizeText($(cells[5]).text());
+    if (!competitionText) return;
 
     const homeTeam = normalizeText($(cells[8] || {}).text() || $(cells[6] || {}).text());
     const awayTeam = normalizeText($(cells[9] || {}).text() || $(cells[7] || {}).text());
@@ -45,11 +63,14 @@ function parseRows(
     );
     const hasScore = /\d+\s*:\s*\d+/.test(statusText);
 
-    const fullName = ABBR_TO_FULL[competitionAbbr] || competitionAbbr;
-    const existing = map.get(competitionAbbr) || {
-      name: competitionAbbr,
+    const abbreviation = ABBR_TO_FULL[competitionText]
+      ? competitionText
+      : inferAbbreviation(competitionText) || competitionText;
+    const fullName = ABBR_TO_FULL[competitionText] || competitionText;
+    const existing = map.get(competitionText) || {
+      name: competitionText,
       fullName,
-      abbreviation: competitionAbbr,
+      abbreviation,
       matchCount: 0,
       completedCount: 0,
       upcomingCount: 0,
@@ -59,6 +80,7 @@ function parseRows(
     };
 
     existing.fullName = existing.fullName || fullName;
+    existing.abbreviation = existing.abbreviation || abbreviation;
     existing.matchCount += 1;
     if (hasScore) {
       existing.hasCompleted = true;
@@ -71,7 +93,7 @@ function parseRows(
       existing.sampleMatch = `${homeTeam} vs ${awayTeam}`;
     }
 
-    map.set(competitionAbbr, existing);
+    map.set(competitionText, existing);
     parsed += 1;
   });
 
